@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="share_import_label">导入到 ReX 体验模式</string>
+
+    <string name="cancel">取消</string>
+    <string name="close">关闭</string>
+    <string name="ok">确定</string>
+    <string name="save">保存</string>
+    <string name="delete">删除</string>
+    <string name="edit">编辑</string>
+    <string name="search">搜索</string>
+    <string name="loading">加载中…</string>
+    <string name="not_connected">未连接</string>
+    <string name="connect">连接</string>
+    <string name="disconnect">断开</string>
+    <string name="import_from_file">从文件导入</string>
+    <string name="demo_mode">体验模式</string>
+    <string name="demo_short">体验</string>
+    <string name="n_channels">%d 个通道</string>
+
+    <string name="tab_dash">仪表</string>
+    <string name="tab_scope">示波</string>
+    <string name="tab_channels">通道</string>
+    <string name="tab_records">记录</string>
+    <string name="tab_more">更多</string>
+    <string name="dash_race">高级</string>
+    <string name="dash_monitor">监控</string>
+    <string name="dash_cruise">巡航</string>
+
+    <string name="st_connected">已连接</string>
+    <string name="st_connecting">连接中</string>
+    <string name="st_waiting">等待回应</string>
+    <string name="st_reconnecting">重连中</string>
+    <string name="rec_start">录制</string>
+    <string name="rec_stop">停止</string>
+
+    <string name="idle_title">尚未连接</string>
+    <string name="idle_hint">连上车子，或先用体验模式看看</string>
+    <string name="import_title">先导入车辆数据</string>
+    <string name="import_hint_xtune">请选择车辆数据档（ControlFile XML），只需要做一次。</string>
+    <string name="import_hint_file">请选择车辆数据档（ControlFile XML），只需要做一次。</string>
+    <string name="import_from_xtune">从文件导入</string>
+    <string name="xtune_missing">从文件导入</string>
+
+    <string name="conn_host">车子的地址</string>
+    <string name="conn_finding">寻找中…</string>
+    <string name="conn_find">自动寻找</string>
+    <string name="conn_not_found">没找到车子。请确认手机跟车子连在同一个 WiFi。</string>
+    <string name="conn_xtune_kicked">连接时 XTune 会被断开。</string>
+    <string name="conn_password">ECU 密码（留空＝出厂默认 888888）</string>
+    <string name="conn_channels">要看的通道</string>
+    <string name="conn_new_group">＋ 添加通道组</string>
+    <string name="conn_fewer_faster">通道越少，更新越快。</string>
+    <string name="conn_adv_show">高级设置</string>
+    <string name="conn_adv_hide">隐藏高级设置</string>
+    <string name="conn_bike_wifi">车子的 WiFi</string>
+    <string name="conn_wifi_name">名称（留空＝用目前的 WiFi）</string>
+    <string name="conn_wifi_password">WiFi 密码</string>
+    <string name="conn_wifi_hint">填了会另外连到车子的 WiFi，手机原本的网络照常可以用。</string>
+    <string name="conn_network">网络</string>
+    <string name="conn_bind_auto">自动</string>
+    <string name="conn_bind_wifi">只用 WiFi</string>
+    <string name="conn_bind_none">不限</string>
+    <string name="conn_bind_hint">手机自己开热点给车子连时，选「不限」。</string>
+    <string name="preset_all">全部</string>
+    <string name="preset_default_name">我的通道组 %d</string>
+
+    <string name="group_new">添加通道组</string>
+    <string name="group_edit">编辑通道组</string>
+    <string name="group_name">名称</string>
+    <string name="group_selected">已选 %1$d／%2$d</string>
+    <string name="select_all">全选</string>
+    <string name="select_none">全不选</string>
+
+    <string name="demo_hint">选一份骑乘记录，ReX 会把它当成车子重播一次。</string>
+    <string name="demo_builtin">▶ 范例记录</string>
+    <string name="demo_empty">还没有记录。</string>
+    <string name="demo_share_hint">也可以在 XTune 的记录清单按「分享」，选 ReX。</string>
+    <string name="demo_added">已加入体验模式：%s</string>
+    <string name="demo_import_failed">导入失败：%s</string>
+    <string name="err_read_file">读不到文件</string>
+    <string name="err_zip_no_loga">压缩档里没有 .loga</string>
+    <string name="err_not_loga">这不是 XTune 的骑乘记录</string>
+    <string name="err_registry">车辆数据读取失败，请重新导入</string>
+
+    <string name="pick_channel_replace">换成哪个通道？</string>
+    <string name="pick_channel_add">添加哪个通道？</string>
+    <string name="add_tile">＋ 添加</string>
+    <string name="reset_default">恢复预设</string>
+    <string name="remove">移除</string>
+    <string name="fun_active">作动</string>
+    <string name="fun_readonly_toast">%s 请到 XTune 切换。长按可以换按钮。</string>
+    <string name="fun_dialog_title">快捷按钮设置</string>
+    <string name="fun_in_use">另一颗在用</string>
+
+    <string name="scope_paused">已暂停</string>
+    <string name="scope_pause">暂停</string>
+    <string name="scope_pick">选通道</string>
+    <string name="scope_waiting">等待数据…</string>
+    <string name="scope_window">最近 %d 秒</string>
+    <string name="scope_pick_title">选通道（最多 6 个）</string>
+
+    <string name="ch_search">搜索通道</string>
+    <string name="ch_with_flags">含状态灯号</string>
+    <string name="ch_only_on">只看亮起的</string>
+    <string name="ch_count">%d 项</string>
+    <string name="ch_sensor_not_ready">感知器未就绪</string>
+
+    <string name="rec_recording">● 录制中</string>
+    <string name="rec_mark">打标记</string>
+    <string name="rec_mark_text">标记 %d</string>
+    <string name="rec_stop_recording">停止录制</string>
+    <string name="rec_list">录制记录（%d）</string>
+    <string name="rec_unfinished">%.1f MB・没有正常结束，数据仍保留</string>
+    <string name="rec_share_all">分享全部</string>
+    <string name="rec_share_loga">分享 loga</string>
+    <string name="rec_share_title">分享记录</string>
+    <string name="rec_share_text">分享会去除 ECU 密码、ECU 序列号与识别码、设备名称和 GPS 定位。完整诊断保留 ECU 识别与定位（密码一律去除），只发给信任的人。</string>
+    <string name="rec_share_public">分享</string>
+    <string name="rec_share_full">完整诊断</string>
+    <string name="rec_delete_title">删除 %s？</string>
+    <string name="rec_delete_text">删除后无法复原。</string>
+
+    <string name="more_malf">故障码</string>
+    <string name="more_diag">诊断</string>
+    <string name="more_settings">设置</string>
+    <string name="malf_now">目前亮着</string>
+    <string name="malf_none">没有故障 ✓</string>
+    <string name="malf_seen">这次连接出现过（%d）</string>
+    <string name="malf_first">%1$s　首次 %2$s</string>
+    <string name="malf_hint">显示车上电脑回报的故障码。</string>
+
+    <string name="set_look">外观</string>
+    <string name="set_look_hint">暗色夜骑不刺眼，浅色在大太阳下看得清楚。</string>
+    <string name="set_dash">仪表</string>
+    <string name="set_rpm_max">转速表上限</string>
+    <string name="set_show_gear">显示档位</string>
+    <string name="set_keep_screen">连接时屏幕不关</string>
+    <string name="set_background">背景运行</string>
+    <string name="set_run_after_close">滑掉 App 后继续连接</string>
+    <string name="set_run_after_close_hint">关闭时，把 ReX 从最近使用的 App 滑掉就会停止。</string>
+    <string name="set_idle_stop">熄火后自动断线</string>
+    <string name="set_minutes">%d 分钟</string>
+    <string name="set_never">不断线</string>
+    <string name="set_sync">同步到电脑</string>
+    <string name="set_sync_enable">连接时同步数据</string>
+    <string name="set_sync_addr">电脑地址</string>
+    <string name="set_vehicle">车辆数据</string>
+    <string name="set_vehicle_count">已导入 %d 个通道</string>
+    <string name="set_reimport">重新导入</string>
+    <string name="set_about">关于</string>
+    <string name="set_about_readonly">ReX 只读取数据，不会更改车上的任何设置。</string>
+    <string name="theme_emerald">翠晶（暗）</string>
+    <string name="theme_ruby">绯焰（暗）</string>
+    <string name="theme_topaz">曦光（浅）</string>
+    <string name="theme_system">跟随系统</string>
+
+    <string name="diag_connection">连接</string>
+    <string name="diag_od_read">对象读取</string>
+    <string name="diag_block">区块读</string>
+    <string name="diag_normal">一般读</string>
+    <string name="diag_reading">读取中…</string>
+    <string name="diag_read">读取</string>
+    <string name="diag_dev_name">设备名</string>
+    <string name="diag_hw">硬件版</string>
+    <string name="diag_sw">软件版</string>
+    <string name="diag_frames">最近帧</string>
+    <string name="diag_events">事件</string>
+    <string name="diag_sync_on">已连上</string>
+    <string name="diag_sync_off">未连上</string>
+
+    <string name="notif_channel">ReX 连接</string>
+    <string name="notif_connecting">连接中…</string>
+    <string name="notif_waiting">等待车辆回应…</string>
+    <string name="notif_reconnecting">重新连接中…</string>
+    <string name="notif_recording">・录制中</string>
+    <string name="notif_stop">结束</string>
+
+    <string name="err_no_key">这个文件不是 ControlFile。</string>
+    <string name="err_not_controlfile">这个文件不是 ControlFile。</string>
+    <string name="err_xtune_no_asset">这个文件不是 ControlFile。</string>
+    <string name="err_no_wifi">目前没有连上 WiFi</string>
+    <string name="set_gps">GPS</string>
+    <string name="set_gps_enable">使用手机 GPS</string>
+    <string name="set_gps_hint">录制时一并记下位置和 GPS 时速（字段与 XTune 相同）。车上没装 GPS 模块也能用。</string>
+    <string name="set_gps_speed">仪表时速改用 GPS</string>
+    <string name="set_auto_record">连接后自动录制</string>
+    <string name="ctl_on">%s 已开启</string>
+    <string name="ctl_off">%s 已关闭</string>
+    <string name="ctl_map_ok">已切换到 %s</string>
+    <string name="ctl_needs_login">%s：功能限制（需要正确的 ECU 密码）</string>
+    <string name="ctl_not_licensed">%s：功能限制（这颗 ECU 未开通）</string>
+    <string name="ctl_refused">%s：ECU 拒绝（%s）</string>
+    <string name="ctl_error">%s：%s</string>
+    <string name="ctl_not_connected">%s：尚未连接</string>
+    <string name="ctl_demo">%s：体验模式不会发送到 ECU</string>
+    <string name="at_confirm_title">开启 Auto Tune？</string>
+    <string name="at_confirm_body">开启后 ECU 会根据宽域氧传感器的数据，在骑行中自动修正油量。确定要开启吗？</string>
+    <string name="at_confirm_ok">开启</string>
+</resources>

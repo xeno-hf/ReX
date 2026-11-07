@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.RX" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/rx_bg</item>
+        <item name="android:statusBarColor">@color/rx_bg</item>
+        <item name="android:navigationBarColor">@color/rx_bg</item>
+    </style>
+    <color name="rx_bg">#FF0A0D0D</color>
+    <color name="rx_accent">#FF2FE0B0</color>
+</resources>

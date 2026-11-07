@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">ReX</string>
+    <string name="share_import_label">Import to ReX demo mode</string>
+
+    <!-- 通用 -->
+    <string name="cancel">Cancel</string>
+    <string name="close">Close</string>
+    <string name="ok">OK</string>
+    <string name="save">Save</string>
+    <string name="delete">Delete</string>
+    <string name="edit">Edit</string>
+    <string name="search">Search</string>
+    <string name="loading">Loading…</string>
+    <string name="not_connected">Not connected</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="import_from_file">Import from file</string>
+    <string name="demo_mode">Demo mode</string>
+    <string name="demo_short">Demo</string>
+    <string name="n_channels">%d channels</string>
+
+    <!-- 分頁 -->
+    <string name="tab_dash">Dash</string>
+    <string name="tab_scope">Scope</string>
+    <string name="tab_channels">Channels</string>
+    <string name="tab_records">Records</string>
+    <string name="tab_more">More</string>
+    <string name="dash_race">Race</string>
+    <string name="dash_monitor">Monitor</string>
+    <string name="dash_cruise">Cruise</string>
+
+    <!-- 狀態 -->
+    <string name="st_connected">Connected</string>
+    <string name="st_connecting">Connecting</string>
+    <string name="st_waiting">Waiting</string>
+    <string name="st_reconnecting">Reconnecting</string>
+    <string name="rec_start">Rec</string>
+    <string name="rec_stop">Stop</string>
+
+    <!-- 首頁／匯入 -->
+    <string name="idle_title">Not connected</string>
+    <string name="idle_hint">Connect to your bike, or try demo mode first</string>
+    <string name="import_title">Import vehicle data first</string>
+    <string name="import_hint_xtune">Choose the vehicle data file (ControlFile XML). You only need to do this once.</string>
+    <string name="import_hint_file">Choose the vehicle data file (ControlFile XML). You only need to do this once.</string>
+    <string name="import_from_xtune">Import from file</string>
+    <string name="xtune_missing">Import from file</string>
+
+    <!-- 連線視窗 -->
+    <string name="conn_host">Bike address</string>
+    <string name="conn_finding">Searching…</string>
+    <string name="conn_find">Find automatically</string>
+    <string name="conn_not_found">Bike not found. Make sure the phone and the bike are on the same WiFi.</string>
+    <string name="conn_xtune_kicked">XTune will be disconnected while ReX is connected.</string>
+    <string name="conn_password">ECU password (blank = factory default 888888)</string>
+    <string name="conn_channels">Channels to show</string>
+    <string name="conn_new_group">+ New channel group</string>
+    <string name="conn_fewer_faster">Fewer channels, faster updates.</string>
+    <string name="conn_adv_show">Advanced settings</string>
+    <string name="conn_adv_hide">Hide advanced settings</string>
+    <string name="conn_bike_wifi">Bike WiFi</string>
+    <string name="conn_wifi_name">Name (empty = use current WiFi)</string>
+    <string name="conn_wifi_password">WiFi password</string>
+    <string name="conn_wifi_hint">If set, ReX joins the bike WiFi separately and the phone keeps its normal network.</string>
+    <string name="conn_network">Network</string>
+    <string name="conn_bind_auto">Auto</string>
+    <string name="conn_bind_wifi">WiFi only</string>
+    <string name="conn_bind_none">Any</string>
+    <string name="conn_bind_hint">Choose “Any” if the bike is connected to this phone’s hotspot.</string>
+    <string name="preset_all">All</string>
+    <string name="preset_default_name">My group %d</string>
+
+    <!-- 通道組編輯 -->
+    <string name="group_new">New channel group</string>
+    <string name="group_edit">Edit channel group</string>
+    <string name="group_name">Name</string>
+    <string name="group_selected">Selected %1$d / %2$d</string>
+    <string name="select_all">All</string>
+    <string name="select_none">None</string>
+
+    <!-- 體驗模式 -->
+    <string name="demo_hint">Pick a ride log and ReX will replay it as if it were the bike.</string>
+    <string name="demo_builtin">▶ Sample ride</string>
+    <string name="demo_empty">No logs yet.</string>
+    <string name="demo_share_hint">You can also tap “Share” in XTune’s log list and choose ReX.</string>
+    <string name="demo_added">Added to demo mode: %s</string>
+    <string name="demo_import_failed">Import failed: %s</string>
+    <string name="err_read_file">Cannot read the file</string>
+    <string name="err_zip_no_loga">No .loga in the archive</string>
+    <string name="err_not_loga">This is not an XTune ride log</string>
+    <string name="err_registry">Failed to load vehicle data. Please import again.</string>
+
+    <!-- 儀表 -->
+    <string name="pick_channel_replace">Replace with which channel?</string>
+    <string name="pick_channel_add">Add which channel?</string>
+    <string name="add_tile">+ Add</string>
+    <string name="reset_default">Reset</string>
+    <string name="remove">Remove</string>
+    <string name="fun_active">ACTIVE</string>
+    <string name="fun_readonly_toast">Switch %s in XTune. Long-press to change this button.</string>
+    <string name="fun_dialog_title">Shortcut button</string>
+    <string name="fun_in_use">Used by the other button</string>
+
+    <!-- 示波 -->
+    <string name="scope_paused">Paused</string>
+    <string name="scope_pause">Pause</string>
+    <string name="scope_pick">Channels</string>
+    <string name="scope_waiting">Waiting for data…</string>
+    <string name="scope_window">Last %d s</string>
+    <string name="scope_pick_title">Choose channels (up to 6)</string>
+
+    <!-- 通道 -->
+    <string name="ch_search">Search channels</string>
+    <string name="ch_with_flags">Include status flags</string>
+    <string name="ch_only_on">Only active</string>
+    <string name="ch_count">%d items</string>
+    <string name="ch_sensor_not_ready">Sensor not ready</string>
+
+    <!-- 紀錄 -->
+    <string name="rec_recording">● Recording</string>
+    <string name="rec_mark">Add mark</string>
+    <string name="rec_mark_text">Mark %d</string>
+    <string name="rec_stop_recording">Stop recording</string>
+    <string name="rec_list">Recordings (%d)</string>
+    <string name="rec_unfinished">%.1f MB · Not closed properly, data kept</string>
+    <string name="rec_share_all">Share all</string>
+    <string name="rec_share_loga">Share loga</string>
+    <string name="rec_share_title">Share recording</string>
+    <string name="rec_share_text">Sharing removes the ECU password, ECU serial and identity codes, device name and GPS location. Full diagnostic keeps ECU identity and location (the password is always removed); send it only to people you trust.</string>
+    <string name="rec_share_public">Share</string>
+    <string name="rec_share_full">Full diagnostic</string>
+    <string name="rec_delete_title">Delete %s?</string>
+    <string name="rec_delete_text">This cannot be undone.</string>
+
+    <!-- 更多 -->
+    <string name="more_malf">Faults</string>
+    <string name="more_diag">Diagnostics</string>
+    <string name="more_settings">Settings</string>
+    <string name="malf_now">Active now</string>
+    <string name="malf_none">No faults ✓</string>
+    <string name="malf_seen">Seen this session (%d)</string>
+    <string name="malf_first">%1$s · first %2$s</string>
+    <string name="malf_hint">Fault codes reported by the bike’s ECU.</string>
+
+    <!-- 設定 -->
+    <string name="set_look">Appearance</string>
+    <string name="set_look_hint">Dark themes are easy on the eyes at night; the light theme is easier to read in sunlight.</string>
+    <string name="set_dash">Dashboard</string>
+    <string name="set_rpm_max">Tachometer range</string>
+    <string name="set_show_gear">Show gear</string>
+    <string name="set_keep_screen">Keep screen on while connected</string>
+    <string name="set_background">Background</string>
+    <string name="set_run_after_close">Keep running after swiping the app away</string>
+    <string name="set_run_after_close_hint">When off, swiping ReX away from recent apps stops it.</string>
+    <string name="set_idle_stop">Auto-disconnect after engine off</string>
+    <string name="set_minutes">%d min</string>
+    <string name="set_never">Never</string>
+    <string name="set_sync">Sync to computer</string>
+    <string name="set_sync_enable">Sync data while connected</string>
+    <string name="set_sync_addr">Computer address</string>
+    <string name="set_vehicle">Vehicle data</string>
+    <string name="set_vehicle_count">%d channels imported</string>
+    <string name="set_reimport">Import again</string>
+    <string name="set_about">About</string>
+    <string name="set_about_readonly">ReX only reads data and never changes any setting on the bike.</string>
+    <string name="theme_emerald">Emerald (dark)</string>
+    <string name="theme_ruby">Ruby (dark)</string>
+    <string name="theme_topaz">Topaz (light)</string>
+    <string name="theme_system">Follow system</string>
+
+    <!-- 診斷（技術用語） -->
+    <string name="diag_connection">Connection</string>
+    <string name="diag_od_read">Object read</string>
+    <string name="diag_block">Block</string>
+    <string name="diag_normal">Normal</string>
+    <string name="diag_reading">Reading…</string>
+    <string name="diag_read">Read</string>
+    <string name="diag_dev_name">Device</string>
+    <string name="diag_hw">Hardware</string>
+    <string name="diag_sw">Software</string>
+    <string name="diag_frames">Recent frames</string>
+    <string name="diag_events">Events</string>
+    <string name="diag_sync_on">Connected</string>
+    <string name="diag_sync_off">Not connected</string>
+
+    <!-- 通知 -->
+    <string name="notif_channel">ReX connection</string>
+    <string name="notif_connecting">Connecting…</string>
+    <string name="notif_waiting">Waiting for the bike…</string>
+    <string name="notif_reconnecting">Reconnecting…</string>
+    <string name="notif_recording">· Recording</string>
+    <string name="notif_stop">Stop</string>
+
+    <!-- 匯入錯誤 -->
+    <string name="err_no_key">This file is not a ControlFile.</string>
+    <string name="err_not_controlfile">This file is not a ControlFile.</string>
+    <string name="err_xtune_no_asset">This file is not a ControlFile.</string>
+    <string name="err_no_wifi">Not connected to WiFi</string>
+    <string name="set_gps">GPS</string>
+    <string name="set_gps_enable">Use phone GPS</string>
+    <string name="set_gps_hint">Records your position and GPS speed into the log (same columns as XTune). Works without a GPS module on the bike.</string>
+    <string name="set_gps_speed">Show GPS speed on the dashboard</string>
+    <string name="set_auto_record">Start recording when connected</string>
+    <string name="ctl_on">%s on</string>
+    <string name="ctl_off">%s off</string>
+    <string name="ctl_map_ok">Switched to %s</string>
+    <string name="ctl_needs_login">%s: restricted (correct ECU password required)</string>
+    <string name="ctl_not_licensed">%s: restricted (not enabled on this ECU)</string>
+    <string name="ctl_refused">%s: refused by the ECU (%s)</string>
+    <string name="ctl_error">%s: %s</string>
+    <string name="ctl_not_connected">%s: not connected</string>
+    <string name="ctl_demo">%s: demo mode doesn\'t send to the ECU</string>
+    <string name="at_confirm_title">Turn on Auto Tune?</string>
+    <string name="at_confirm_body">Auto Tune lets the ECU correct fueling from the wideband O2 sensor while you ride. Turn it on?</string>
+    <string name="at_confirm_ok">Turn on</string>
+</resources>

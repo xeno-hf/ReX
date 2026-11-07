@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="share_import_label">ReX のデモモードに取り込む</string>
+
+    <string name="cancel">キャンセル</string>
+    <string name="close">閉じる</string>
+    <string name="ok">OK</string>
+    <string name="save">保存</string>
+    <string name="delete">削除</string>
+    <string name="edit">編集</string>
+    <string name="search">検索</string>
+    <string name="loading">読み込み中…</string>
+    <string name="not_connected">未接続</string>
+    <string name="connect">接続</string>
+    <string name="disconnect">切断</string>
+    <string name="import_from_file">ファイルから取り込む</string>
+    <string name="demo_mode">デモモード</string>
+    <string name="demo_short">デモ</string>
+    <string name="n_channels">%d チャンネル</string>
+
+    <string name="tab_dash">メーター</string>
+    <string name="tab_scope">波形</string>
+    <string name="tab_channels">チャンネル</string>
+    <string name="tab_records">記録</string>
+    <string name="tab_more">その他</string>
+    <string name="dash_race">レース</string>
+    <string name="dash_monitor">モニター</string>
+    <string name="dash_cruise">クルーズ</string>
+
+    <string name="st_connected">接続中</string>
+    <string name="st_connecting">接続しています</string>
+    <string name="st_waiting">応答待ち</string>
+    <string name="st_reconnecting">再接続中</string>
+    <string name="rec_start">記録</string>
+    <string name="rec_stop">停止</string>
+
+    <string name="idle_title">未接続</string>
+    <string name="idle_hint">バイクに接続するか、まずはデモモードを試してください</string>
+    <string name="import_title">まず車両データを取り込みます</string>
+    <string name="import_hint_xtune">車両データファイル（ControlFile XML）を選んでください。最初に一度だけ必要です。</string>
+    <string name="import_hint_file">車両データファイル（ControlFile XML）を選んでください。最初に一度だけ必要です。</string>
+    <string name="import_from_xtune">ファイルから取り込む</string>
+    <string name="xtune_missing">ファイルから取り込む</string>
+
+    <string name="conn_host">バイクのアドレス</string>
+    <string name="conn_finding">検索中…</string>
+    <string name="conn_find">自動検索</string>
+    <string name="conn_not_found">バイクが見つかりません。端末とバイクが同じ WiFi に接続されているか確認してください。</string>
+    <string name="conn_xtune_kicked">接続中は XTune の接続が切れます。</string>
+    <string name="conn_password">ECU パスワード（空欄＝工場出荷時 888888）</string>
+    <string name="conn_channels">表示するチャンネル</string>
+    <string name="conn_new_group">＋ チャンネルグループを追加</string>
+    <string name="conn_fewer_faster">チャンネルが少ないほど更新が速くなります。</string>
+    <string name="conn_adv_show">詳細設定</string>
+    <string name="conn_adv_hide">詳細設定を隠す</string>
+    <string name="conn_bike_wifi">バイクの WiFi</string>
+    <string name="conn_wifi_name">名前（空欄＝現在の WiFi を使用）</string>
+    <string name="conn_wifi_password">WiFi パスワード</string>
+    <string name="conn_wifi_hint">入力すると、バイクの WiFi に別途接続し、端末の通常のネットワークはそのまま使えます。</string>
+    <string name="conn_network">ネットワーク</string>
+    <string name="conn_bind_auto">自動</string>
+    <string name="conn_bind_wifi">WiFi のみ</string>
+    <string name="conn_bind_none">制限なし</string>
+    <string name="conn_bind_hint">端末のテザリングにバイクをつなぐ場合は「制限なし」を選んでください。</string>
+    <string name="preset_all">すべて</string>
+    <string name="preset_default_name">マイグループ %d</string>
+
+    <string name="group_new">チャンネルグループを追加</string>
+    <string name="group_edit">チャンネルグループを編集</string>
+    <string name="group_name">名前</string>
+    <string name="group_selected">選択 %1$d／%2$d</string>
+    <string name="select_all">すべて選択</string>
+    <string name="select_none">選択解除</string>
+
+    <string name="demo_hint">走行ログを選ぶと、ReX がバイクの代わりに再生します。</string>
+    <string name="demo_builtin">▶ サンプルログ</string>
+    <string name="demo_empty">ログがまだありません。</string>
+    <string name="demo_share_hint">XTune のログ一覧で「共有」を押し、ReX を選んでも取り込めます。</string>
+    <string name="demo_added">デモモードに追加しました：%s</string>
+    <string name="demo_import_failed">取り込みに失敗しました：%s</string>
+    <string name="err_read_file">ファイルを読み込めません</string>
+    <string name="err_zip_no_loga">圧縮ファイルに .loga がありません</string>
+    <string name="err_not_loga">XTune の走行ログではありません</string>
+    <string name="err_registry">車両データの読み込みに失敗しました。もう一度取り込んでください</string>
+
+    <string name="pick_channel_replace">どのチャンネルに変更しますか？</string>
+    <string name="pick_channel_add">どのチャンネルを追加しますか？</string>
+    <string name="add_tile">＋ 追加</string>
+    <string name="reset_default">初期設定に戻す</string>
+    <string name="remove">削除</string>
+    <string name="fun_active">作動中</string>
+    <string name="fun_readonly_toast">%s の切り替えは XTune で行ってください。長押しでボタンを変更できます。</string>
+    <string name="fun_dialog_title">ショートカットボタン</string>
+    <string name="fun_in_use">もう一方で使用中</string>
+
+    <string name="scope_paused">一時停止中</string>
+    <string name="scope_pause">一時停止</string>
+    <string name="scope_pick">チャンネル</string>
+    <string name="scope_waiting">データ待ち…</string>
+    <string name="scope_window">直近 %d 秒</string>
+    <string name="scope_pick_title">チャンネルを選択（最大 6 個）</string>
+
+    <string name="ch_search">チャンネルを検索</string>
+    <string name="ch_with_flags">状態フラグを含む</string>
+    <string name="ch_only_on">点灯中のみ</string>
+    <string name="ch_count">%d 件</string>
+    <string name="ch_sensor_not_ready">センサー準備中</string>
+
+    <string name="rec_recording">● 記録中</string>
+    <string name="rec_mark">マーク</string>
+    <string name="rec_mark_text">マーク %d</string>
+    <string name="rec_stop_recording">記録を停止</string>
+    <string name="rec_list">記録（%d）</string>
+    <string name="rec_unfinished">%.1f MB・正常に終了していません（データは保持）</string>
+    <string name="rec_share_all">すべて共有</string>
+    <string name="rec_share_loga">loga を共有</string>
+    <string name="rec_share_title">記録を共有</string>
+    <string name="rec_share_text">共有時は ECU パスワード、ECU シリアル・識別コード、端末名、GPS 位置情報を取り除きます。完全診断は ECU 識別と位置情報を残します（パスワードは常に除去）。信頼できる相手にだけ送ってください。</string>
+    <string name="rec_share_public">共有</string>
+    <string name="rec_share_full">完全診断</string>
+    <string name="rec_delete_title">%s を削除しますか？</string>
+    <string name="rec_delete_text">削除すると元に戻せません。</string>
+
+    <string name="more_malf">故障コード</string>
+    <string name="more_diag">診断</string>
+    <string name="more_settings">設定</string>
+    <string name="malf_now">現在点灯中</string>
+    <string name="malf_none">故障なし ✓</string>
+    <string name="malf_seen">今回の接続で発生（%d）</string>
+    <string name="malf_first">%1$s　初回 %2$s</string>
+    <string name="malf_hint">バイクの ECU が報告した故障コードを表示します。</string>
+
+    <string name="set_look">外観</string>
+    <string name="set_look_hint">ダークテーマは夜でもまぶしくなく、ライトテーマは日差しの下でも見やすくなります。</string>
+    <string name="set_dash">メーター</string>
+    <string name="set_rpm_max">タコメーターの範囲</string>
+    <string name="set_show_gear">ギアを表示</string>
+    <string name="set_keep_screen">接続中は画面を消さない</string>
+    <string name="set_background">バックグラウンド</string>
+    <string name="set_run_after_close">アプリをスワイプで閉じても接続を続ける</string>
+    <string name="set_run_after_close_hint">オフのときは、最近使ったアプリから ReX をスワイプすると停止します。</string>
+    <string name="set_idle_stop">エンジン停止後に自動切断</string>
+    <string name="set_minutes">%d 分</string>
+    <string name="set_never">切断しない</string>
+    <string name="set_sync">パソコンに同期</string>
+    <string name="set_sync_enable">接続中にデータを同期</string>
+    <string name="set_sync_addr">パソコンのアドレス</string>
+    <string name="set_vehicle">車両データ</string>
+    <string name="set_vehicle_count">%d チャンネル取り込み済み</string>
+    <string name="set_reimport">もう一度取り込む</string>
+    <string name="set_about">このアプリについて</string>
+    <string name="set_about_readonly">ReX はデータを読み取るだけで、バイクの設定は一切変更しません。</string>
+    <string name="theme_emerald">Emerald（ダーク）</string>
+    <string name="theme_ruby">Ruby（ダーク）</string>
+    <string name="theme_topaz">Topaz（ライト）</string>
+    <string name="theme_system">システムに従う</string>
+
+    <string name="diag_connection">接続</string>
+    <string name="diag_od_read">オブジェクト読み取り</string>
+    <string name="diag_block">ブロック</string>
+    <string name="diag_normal">通常</string>
+    <string name="diag_reading">読み取り中…</string>
+    <string name="diag_read">読み取り</string>
+    <string name="diag_dev_name">デバイス名</string>
+    <string name="diag_hw">ハードウェア</string>
+    <string name="diag_sw">ソフトウェア</string>
+    <string name="diag_frames">最近のフレーム</string>
+    <string name="diag_events">イベント</string>
+    <string name="diag_sync_on">接続済み</string>
+    <string name="diag_sync_off">未接続</string>
+
+    <string name="notif_channel">ReX 接続</string>
+    <string name="notif_connecting">接続しています…</string>
+    <string name="notif_waiting">バイクの応答を待っています…</string>
+    <string name="notif_reconnecting">再接続しています…</string>
+    <string name="notif_recording">・記録中</string>
+    <string name="notif_stop">終了</string>
+
+    <string name="err_no_key">このファイルは ControlFile ではありません。</string>
+    <string name="err_not_controlfile">このファイルは ControlFile ではありません。</string>
+    <string name="err_xtune_no_asset">このファイルは ControlFile ではありません。</string>
+    <string name="err_no_wifi">WiFi に接続されていません</string>
+    <string name="set_gps">GPS</string>
+    <string name="set_gps_enable">スマホの GPS を使う</string>
+    <string name="set_gps_hint">記録時に位置と GPS 速度もログに残します（XTune と同じ列）。車体に GPS モジュールがなくても使えます。</string>
+    <string name="set_gps_speed">メーターの速度を GPS にする</string>
+    <string name="set_auto_record">接続したら自動で記録</string>
+    <string name="ctl_on">%s をオンにしました</string>
+    <string name="ctl_off">%s をオフにしました</string>
+    <string name="ctl_map_ok">%s に切り替えました</string>
+    <string name="ctl_needs_login">%s：機能制限（正しい ECU パスワードが必要です）</string>
+    <string name="ctl_not_licensed">%s：機能制限（この ECU では有効化されていません）</string>
+    <string name="ctl_refused">%s：ECU が拒否しました（%s）</string>
+    <string name="ctl_error">%s：%s</string>
+    <string name="ctl_not_connected">%s：未接続</string>
+    <string name="ctl_demo">%s：体験モードでは ECU に送信しません</string>
+    <string name="at_confirm_title">Auto Tune をオンにしますか？</string>
+    <string name="at_confirm_body">オンにすると、走行中に ECU が広帯域 O2 センサーのデータで燃料を自動補正します。オンにしますか？</string>
+    <string name="at_confirm_ok">オンにする</string>
+</resources>

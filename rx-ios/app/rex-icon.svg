@@ -1,0 +1,8 @@
+<!-- ReX 圖示（iOS）：跟 Android 自適應圖示同一張（app/src/main/res/drawable/ic_launcher_fg.xml），取中間 72×72 安全區、滿版底色 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="18 18 72 72">
+  <rect x="18" y="18" width="72" height="72" fill="#0A0D0D"/>
+  <path d="M30,70 A26,26 0 1,1 78,70" stroke="#2FE0B0" stroke-width="7" stroke-linecap="round" fill="none"/>
+  <path d="M68,58 A16,16 0 0,1 78,70" stroke="#4A6CF0" stroke-width="7" stroke-linecap="round" fill="none"/>
+  <path d="M54,62 L70,40" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="54" cy="62" r="5" fill="#FFFFFF"/>
+</svg>

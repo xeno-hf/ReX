@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key><string>io.github.xeno_hf.rex.ios</string>
+    <key>CFBundleName</key><string>ReX</string>
+    <key>CFBundleDisplayName</key><string>ReX</string>
+    <key>CFBundleExecutable</key><string>ReX</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>0.6.2</string>
+    <key>CFBundleVersion</key><string>17</string>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array><string>en</string><string>zh-Hant</string><string>zh-Hans</string><string>ja</string></array>
+    <key>MinimumOSVersion</key><string>15.0</string>
+    <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
+    <key>UILaunchScreen</key><dict/>
+    <key>UIRequiresFullScreen</key><true/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+    <key>UIViewControllerBasedStatusBarAppearance</key><false/>
+    <key>CADisableMinimumFrameDurationOnPhone</key><true/>
+    <key>ITSAppUsesNonExemptEncryption</key><false/>
+
+    <!-- 連線期間持續定位：手機 GPS 欄位，也是 iOS 鎖螢幕後讓 App 繼續連線錄製的唯一方式 -->
+    <key>UIBackgroundModes</key><array><string>location</string></array>
+    <key>NSLocationWhenInUseUsageDescription</key><string>ReX records your position and GPS speed in ride logs, and keeps recording while the screen is locked.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>ReX keeps recording your ride while the screen is locked.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>ReX connects to your bike's ECU over WiFi.</string>
+
+    <!-- 錄製檔在「檔案」App 看得到；可用 ReX 打開騎乘紀錄與車輛資料 -->
+    <key>UIFileSharingEnabled</key><true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key><false/>
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key><string>io.github.xeno_hf.rex.loga</string>
+            <key>UTTypeDescription</key><string>aRacer ride log</string>
+            <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>loga</string></array></dict>
+        </dict>
+    </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key><string>Ride log</string>
+            <key>CFBundleTypeRole</key><string>Viewer</string>
+            <key>LSHandlerRank</key><string>Alternate</string>
+            <key>LSItemContentTypes</key><array><string>io.github.xeno_hf.rex.loga</string><string>public.zip-archive</string><string>public.xml</string></array>
+        </dict>
+    </array>
+</dict>
+</plist>
