@@ -39,12 +39,12 @@ An Android/iOS real-time dashboard and data recorder for aRacer RC X series ECUs
 
 ## Get started
 
-1. Download the APK from [Releases](https://github.com/xeno-hf/ReX/releases) (build iOS yourself).
+1. Download the Android APK or unsigned iOS IPA from [Releases](https://github.com/xeno-hf/ReX/releases/latest). For iOS, use a tool such as AltStore or Sideloadly to sign and install it with your own Apple ID. No compilation is required; the IPA cannot be installed by opening it directly.
 2. Join the ECU Wi-Fi, open ReX and tap Connect. Or import a `.loga` for offline playback.
 
 ReX includes common monitoring channels for each model and switches automatically to match the connected ECU, so no files are needed. To see every channel, you can import your own ControlFile XML in Settings.
 
-Requires Android 10+ / iOS 15+. Only Mini X has been tested on a real vehicle so far.
+Requires Android 10+ / iOS 15+ (iPhone/iPad). Only the Android version with Mini X has been tested on a real vehicle so far; iOS vehicle connectivity and other models remain unverified.
 
 ## Build
 

@@ -39,12 +39,12 @@ aRacer RC X 系列 ECU 的 Android／iOS 即時儀表與資料記錄 App。
 
 ## 開始使用
 
-1. 從 [Releases](https://github.com/xeno-hf/ReX/releases) 下載 APK（iOS 需自行建置）。
+1. 從 [Releases](https://github.com/xeno-hf/ReX/releases/latest) 下載 Android APK 或 iOS 未簽章 IPA。iOS 請先用 AltStore、Sideloadly 等工具，以自己的 Apple ID 簽署安裝；不需要自行編譯，IPA 不能直接點開安裝。
 2. 連上 ECU 的 Wi-Fi，開啟 ReX 按連線。也可以匯入 `.loga` 離線重播。
 
 ReX 內建各型號常用的監控通道，連線時會依 ECU 自動切換，不需要匯入任何檔案。想看完整通道的話，可以在設定裡另外匯入自己的 ControlFile XML。
 
-需求：Android 10+／iOS 15+。目前只有 Mini X 實車驗證過，其他型號尚未確認。
+需求：Android 10+／iOS 15+（iPhone／iPad）。目前只有 Android 版搭配 Mini X 實車驗證過；iOS 實車連線與其他型號尚未確認。
 
 ## 建置
 
