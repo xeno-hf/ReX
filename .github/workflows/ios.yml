@@ -1,0 +1,66 @@
+name: iOS IPA
+
+# Builds the unsigned device IPA for release tags, or by hand for any tag, branch or commit.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag, branch or commit to build
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Build
+        run: ./rx-ios/app/build.sh device
+
+      - name: Package checks
+        id: pkg
+        run: |
+          set -euo pipefail
+          app=rx-ios/build/ReX.app
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")
+          ipa="ReX-$version-unsigned.ipa"
+          mv rx-ios/build/ReX.ipa "$ipa"
+          unzip -tq "$ipa"
+          for bin in "$app/ReX" "$app/Frameworks/RexKit.framework/RexKit"; do
+            [ "$(lipo -archs "$bin")" = arm64 ]
+            # Device build, not simulator.
+            vtool -show-build "$bin" | grep -Eq 'platform (IOS|2)$'
+          done
+          shasum -a 256 "$ipa" | tee "$ipa.sha256"
+          echo "ipa=$ipa" >> "$GITHUB_OUTPUT"
+
+      # The IPA is not signed; sign it with your own identity before installing.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.pkg.outputs.ipa }}
+          path: |
+            ${{ steps.pkg.outputs.ipa }}
+            ${{ steps.pkg.outputs.ipa }}.sha256
+          if-no-files-found: error
+          retention-days: 30
