@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.xeno_hf.rex"
         minSdk = 29
         targetSdk = 35
-        versionCode = 18
-        versionName = "0.6.3"
+        versionCode = 19
+        versionName = "0.6.4"
     }
 
     // 正式簽章：只從本機 ~/.config/rx/release.properties 讀，不入庫；沒有就用 debug 簽
@@ -37,7 +37,9 @@ android {
             applicationIdSuffix = ""
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // 公開發布才用正式簽章（-PrexRelease）；其他建置用 debug 簽
             signingConfig = signingConfigs.findByName("release")?.takeIf { project.hasProperty("rexRelease") } ?: signingConfigs.getByName("debug")
         }

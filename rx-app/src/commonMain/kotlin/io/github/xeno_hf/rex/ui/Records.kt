@@ -67,17 +67,20 @@ fun RecordsScreen() {
                 Card(Modifier.fillMaxWidth()) {
                     Column {
                         Text(s.dir.name, fontWeight = FontWeight.Bold)
+                        // 正在錄的那筆還沒收檔（meta 沒有 rounds），不是「沒有正常結束」
+                        val live = rec?.dir == s.dir
                         Text(
-                            if (s.rounds != null) "${rx.protocol.Fmt.fixed(s.sizeBytes / 1e6, 1)} MB"
+                            if (live) stringResource(R.string.rec_in_progress)
+                            else if (s.rounds != null) "${rx.protocol.Fmt.fixed(s.sizeBytes / 1e6, 1)} MB"
                             else stringResource(R.string.rec_unfinished, s.sizeBytes / 1e6),
-                            color = if (s.rounds != null) RxColors.muted else RxColors.warn, fontSize = 12.sp,
+                            color = if (live) RxColors.danger else if (s.rounds != null) RxColors.muted else RxColors.warn, fontSize = 12.sp,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { confirmShare = s }) { Text(stringResource(R.string.rec_share_all)) }
                             TextButton(onClick = {
                                 val f = kotlinx.io.files.Path(s.dir, "decoded.loga")
                                 if (io.github.xeno_hf.rex.Fs.exists(f)) scope.launch {
-                                    val out = kotlinx.io.files.Path(repo.platform.filesDir, "share", "${s.dir.name}.loga")
+                                    val out = kotlinx.io.files.Path(repo.shareDir, "${s.dir.name}.loga")
                                     runCatching {
                                         withContext(Dispatchers.Default) { rx.session.ShareExport.copyLoga(f, out, rx.session.ShareExport.Mode.PUBLIC) }
                                         repo.platform.share(out, "text/plain", "loga")
@@ -96,16 +99,17 @@ fun RecordsScreen() {
             confirmShare = null
             scope.launch {
                 val tag = if (mode == rx.session.ShareExport.Mode.PUBLIC) "" else "_full"
-                val staging = kotlinx.io.files.Path(repo.platform.filesDir, "share", "staging", s.dir.name + tag)
-                val zip = kotlinx.io.files.Path(repo.platform.filesDir, "share", "${s.dir.name}$tag.zip")
+                val staging = kotlinx.io.files.Path(repo.shareDir, "staging", s.dir.name + tag)
+                val zip = kotlinx.io.files.Path(repo.shareDir, "${s.dir.name}$tag.zip")
                 runCatching {
-                withContext(Dispatchers.Default) {
-                    io.github.xeno_hf.rex.Fs.delete(staging)
-                    rx.session.ShareExport.copySession(s.dir, staging, mode)
-                    io.github.xeno_hf.rex.ZipStore.zipDir(staging, zip)
-                    io.github.xeno_hf.rex.Fs.delete(staging)
-                }
-                repo.platform.share(zip, "application/zip", s.dir.name)
+                    withContext(Dispatchers.Default) {
+                        try {
+                            io.github.xeno_hf.rex.Fs.delete(staging)
+                            rx.session.ShareExport.copySession(s.dir, staging, mode)
+                            rx.session.ZipStore.zipDir(staging, zip)
+                        } finally { io.github.xeno_hf.rex.Fs.delete(staging) }
+                    }
+                    repo.platform.share(zip, "application/zip", s.dir.name)
                 }.onFailure { Toasts.show(it.message ?: "Share failed") }
             }
         }

@@ -16,7 +16,7 @@ import kotlin.concurrent.Volatile
 /**
  * 雙軌錄製：
  * ```
- * <dir>/meta.json       錄製資訊＋各檔 SHA256（收檔時寫）
+ * <dir>/meta.json       錄製資訊＋各檔 SHA256（收檔時寫；雜湊是邊寫邊算的，收檔不用重讀檔案）
  *      /frames.rxraw    TX＋RX 全幀＋單調時戳 ← 真相
  *      /events.jsonl    連線／重拉／使用者標記
  *      /decoded.loga    XTune 相容格式，原生速率（每一輪一列）
@@ -38,10 +38,12 @@ class Recorder(
     class ExtraColumn(val varId: Int, val group: String, val name: String, val decimals: Int, val value: (LongArray) -> Double?)
 
     init { SystemFileSystem.createDirectories(dir) }
-    private val rawOut: Sink = SystemFileSystem.sink(Path(dir, "frames.rxraw")).buffered().also { it.write(RxRaw.MAGIC) }
+    private val hashes = LinkedHashMap<String, HashingSink>()
+    private fun open(name: String): Sink = HashingSink(SystemFileSystem.sink(Path(dir, name))).also { hashes[name] = it }.buffered()
+    private val rawOut: Sink = open("frames.rxraw").also { it.write(RxRaw.MAGIC) }
     private val rec = ByteArray(RxRaw.RECORD_LEN)
-    private val events: Sink = SystemFileSystem.sink(Path(dir, "events.jsonl")).buffered()
-    private val loga: Sink = SystemFileSystem.sink(Path(dir, "decoded.loga")).buffered()
+    private val events: Sink = open("events.jsonl")
+    private val loga: Sink = open("decoded.loga")
     private val startedMono = nanoTime()
     private val startedWall = wallClock()
     private var t0: Long = -1
@@ -102,6 +104,7 @@ class Recorder(
 
     fun mark(text: String) = onEvent(nanoTime(), "Mark: $text")
 
+    /** 收檔：把還在緩衝的寫完、關檔、寫 meta.json。花的時間跟錄了多久無關。 */
     fun close(): Unit = synchronized(lock) {
         if (closed) return@synchronized
         closed = true
@@ -110,7 +113,7 @@ class Recorder(
     }
 
     private fun writeMeta(final: Boolean) {
-        val files = if (final) listOf("frames.rxraw", "events.jsonl", "decoded.loga").associateWith { sha256Hex(Path(dir, it)) } else emptyMap()
+        val files = if (final) hashes.mapValues { it.value.sha.hex() } else emptyMap()
         val sb = StringBuilder("{\n  \"login_payload_redacted\": true,\n")
         sb.append("  \"format\": \"rx-session-1\",\n")
         sb.append("  \"started_wall_ms\": $startedWall,\n")
@@ -142,7 +145,13 @@ class Recorder(
             append('"')
         }
 
-        fun newSessionDir(root: Path, label: String, wall: Long = WallClock.nowMs()): Path =
-            Path(root, "${label}_${WallClock.format(wall, "yyyyMMdd_HHmmss")}")
+        /** 同一秒內第二筆（停了馬上再錄）加 _2、_3…，不蓋掉前一筆。 */
+        fun newSessionDir(root: Path, label: String, wall: Long = WallClock.nowMs()): Path {
+            val base = "${label}_${WallClock.format(wall, "yyyyMMdd_HHmmss")}"
+            var dir = Path(root, base)
+            var n = 2
+            while (SystemFileSystem.exists(dir)) dir = Path(root, "${base}_${n++}")
+            return dir
+        }
     }
 }

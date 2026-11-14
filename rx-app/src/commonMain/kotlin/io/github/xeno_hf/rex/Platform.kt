@@ -19,6 +19,11 @@ interface Platform {
 
     /** App 私有資料夾（車輛資料快取、體驗用紀錄）。 */
     val filesDir: Path
+    /**
+     * 暫存資料夾（分享用的副本放 `share/` 底下，下次啟動時清掉）。
+     * Android 的分享要經 FileProvider，位置必須對得上 `res/xml/file_paths.xml` 宣告的 `cache-path share/`。
+     */
+    val cacheDir: Path get() = Path(filesDir, "cache")
     /** 錄製存放處（Android＝外部 App 資料夾，可用檔案管理員拿；iOS＝Documents，可用「檔案」App 拿）。 */
     val sessionsRoot: Path
 

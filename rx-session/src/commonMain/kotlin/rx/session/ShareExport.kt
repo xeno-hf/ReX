@@ -4,6 +4,9 @@ import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readByteArray
+import kotlinx.io.readTo
+import kotlinx.io.writeString
+import rx.protocol.ByteSink
 import rx.protocol.CanId
 import rx.protocol.Frame
 import rx.protocol.RxRaw
@@ -32,35 +35,98 @@ object ShareExport {
             Frame(f.canId, f.data.copyOf().also { for (i in 2 until it.size) it[i] = 0 }, f.flags)
         else f
 
+    /** 逐塊處理，記憶體用量與錄製長度無關（2 小時以上的錄製整檔讀入會撐爆手機的堆積）。 */
     fun copySession(src: Path, dst: Path, mode: Mode) {
         SystemFileSystem.createDirectories(dst)
         val written = LinkedHashMap<String, String>()
         for (name in FILES) {
             val from = Path(src, name)
             if (!SystemFileSystem.exists(from)) continue
-            val bytes = read(from)
-            val out = when (name) {
-                "frames.rxraw" -> rxraw(bytes, mode)
-                "events.jsonl" -> events(bytes.decodeToString(), mode).encodeToByteArray()
-                else -> loga(bytes.decodeToString(), mode).encodeToByteArray()
+            val to = Path(dst, name)
+            when (name) {
+                "frames.rxraw" -> copyRxraw(from, to, mode)
+                "events.jsonl" -> if (mode == Mode.DIAGNOSTIC) copyBytes(from, to) else write(to, ByteArray(0)) // Free-form events may contain addresses, names or raw reply bytes.
+                else -> copyLoga(from, to, mode)
             }
-            write(Path(dst, name), out)
-            written[name] = sha256Hex(Path(dst, name))
+            written[name] = sha256Hex(to)
         }
         val meta = Path(src, "meta.json")
         if (SystemFileSystem.exists(meta)) write(Path(dst, "meta.json"), meta(read(meta).decodeToString(), mode, written).encodeToByteArray())
     }
 
-    fun copyLoga(src: Path, dst: Path, mode: Mode) =
-        write(dst, loga(read(src).decodeToString(), mode).encodeToByteArray())
+    fun copyLoga(src: Path, dst: Path, mode: Mode) {
+        if (mode == Mode.DIAGNOSTIC) return copyBytes(src, dst)
+        val scrub = LogaScrubber()
+        dst.parent?.let { SystemFileSystem.createDirectories(it) }
+        SystemFileSystem.source(src).buffered().use { from ->
+            SystemFileSystem.sink(dst).buffered().use { to ->
+                val buf = ByteArray(1 shl 16)
+                val line = ByteSink(2048)
+                while (true) {
+                    val n = from.readAtMostTo(buf, 0, buf.size)
+                    if (n <= 0) break
+                    var start = 0
+                    for (i in 0 until n) if (buf[i] == NL) {
+                        line.write(buf, start, i - start)
+                        to.writeString(scrub.line(line.toByteArray().decodeToString())); to.writeByte(NL)
+                        line.reset(); start = i + 1
+                    }
+                    line.write(buf, start, n - start)
+                }
+                if (line.size > 0) to.writeString(scrub.line(line.toByteArray().decodeToString()))
+            }
+        }
+    }
+
+    private const val NL: Byte = 10
+    private const val RXRAW_BATCH = 4096
+
+    private fun copyRxraw(src: Path, dst: Path, mode: Mode) {
+        val m = RxRaw.MAGIC.size
+        val size = SystemFileSystem.metadataOrNull(src)?.size ?: -1
+        require(size >= m) { "Invalid recording" }
+        val scrub = RxrawScrubber(mode)
+        dst.parent?.let { SystemFileSystem.createDirectories(it) }
+        SystemFileSystem.source(src).buffered().use { from ->
+            SystemFileSystem.sink(dst).buffered().use { to ->
+                require(from.readByteArray(m).contentEquals(RxRaw.MAGIC)) { "Invalid recording" }
+                to.write(RxRaw.MAGIC)
+                val buf = ByteArray(RxRaw.RECORD_LEN * RXRAW_BATCH)
+                // 沒正常收檔的錄製（App 被系統結束）最後一筆可能只寫了一半：只帶完整的記錄
+                var left = (size - m) / RxRaw.RECORD_LEN * RxRaw.RECORD_LEN
+                while (left > 0) {
+                    val want = minOf(left, buf.size.toLong()).toInt()
+                    from.readTo(buf, 0, want)
+                    var at = 0
+                    while (at < want) { scrub.record(buf, at); at += RxRaw.RECORD_LEN }
+                    to.write(buf, 0, want)
+                    left -= want
+                }
+            }
+        }
+    }
+
+    private fun copyBytes(src: Path, dst: Path) {
+        dst.parent?.let { SystemFileSystem.createDirectories(it) }
+        SystemFileSystem.source(src).buffered().use { from -> SystemFileSystem.sink(dst).buffered().use { to -> from.transferTo(to) } }
+    }
 
     fun rxraw(b: ByteArray, mode: Mode): ByteArray {
-        val out = b.copyOf()
         val m = RxRaw.MAGIC.size
-        require(b.size >= m && b.copyOfRange(0, m).contentEquals(RxRaw.MAGIC) && (b.size-m) % RxRaw.RECORD_LEN == 0) { "Invalid recording" }
-        var identityRead = false
+        require(b.size >= m && b.copyOfRange(0, m).contentEquals(RxRaw.MAGIC)) { "Invalid recording" }
+        val out = b.copyOf(m + (b.size - m) / RxRaw.RECORD_LEN * RxRaw.RECORD_LEN)
+        val scrub = RxrawScrubber(mode)
         var at = m
-        while (at + RxRaw.RECORD_LEN <= out.size) {
+        while (at + RxRaw.RECORD_LEN <= out.size) { scrub.record(out, at); at += RxRaw.RECORD_LEN }
+        return out
+    }
+
+    /** 逐筆去敏；身分物件的讀取跨多筆記錄，所以帶狀態。 */
+    private class RxrawScrubber(private val mode: Mode) {
+        private var identityRead = false
+
+        /** 就地處理 [out] 中從 [at] 起的一筆記錄。 */
+        fun record(out: ByteArray, at: Int) {
             val dir = out[at + 8].toInt()
             val f = at + 10
             val canId = ((out[f + 4].toInt() and 0xFF) shl 24) or ((out[f + 5].toInt() and 0xFF) shl 16) or
@@ -87,9 +153,7 @@ object ShareExport {
                 dir == RxRaw.DIR_RX && canId in 0x581..0x5FF && (identityRead || (dlc >= 4 && ((out[d+1].toInt() and 255) or ((out[d+2].toInt() and 255) shl 8)) in IDENTITY_OBJECTS)) -> zero(1)
             }
             out[f + Frame.FRAME_LEN - 1] = Frame.checksum(out, f + 2, f + Frame.FRAME_LEN - 1).toByte()
-            at += RxRaw.RECORD_LEN
         }
-        return out.copyOf(at)
     }
 
     fun events(text: String, mode: Mode): String =
@@ -97,25 +161,35 @@ object ShareExport {
 
     fun loga(text: String, mode: Mode): String {
         if (mode == Mode.DIAGNOSTIC) return text
-        val lines = text.split("\n").toMutableList()
-        var i = 0
-        var hide = emptySet<Int>()
-        while (i < lines.size && lines[i].trimEnd('\r') != "<DATA START>") {
-            val l = lines[i].trimEnd('\r')
+        val scrub = LogaScrubber()
+        return text.split("\n").joinToString("\n") { scrub.line(it) }
+    }
+
+    /** 逐行去敏（行尾的 `\r` 原樣保留）：表頭清識別欄，資料列把定位欄歸零。 */
+    private class LogaScrubber {
+        private var data = false
+        private var namesNext = false
+        private var hide = emptySet<Int>()
+
+        fun line(raw: String): String {
+            val cr = raw.endsWith('\r')
+            val l = raw.trimEnd('\r')
+            if (data) {
+                if (hide.isEmpty()) return raw
+                val cells = l.split(',').toMutableList()
+                if (cells.size <= 1) return raw
+                for (c in hide) if (c < cells.size) cells[c] = "0"
+                return cells.joinToString(",") + if (cr) "\r" else ""
+            }
+            if (namesNext) {
+                namesNext = false
+                hide = l.split(',').withIndex().filter { LOCATION_COLUMN.containsMatchIn(it.value.trim()) }.map { it.index }.toSet()
+            }
+            if (l == "<DATA START>") { data = true; return raw }
+            if (l == "<VAR NAME>") namesNext = true
             val key = l.substringBefore(':', "")
-            if (key in LOGA_ID_KEYS) lines[i] = "$key:" + if (lines[i].endsWith('\r')) "\r" else ""
-            if (l == "<VAR NAME>" && i + 1 < lines.size)
-                hide = lines[i + 1].trimEnd('\r').split(',').withIndex().filter { LOCATION_COLUMN.containsMatchIn(it.value.trim()) }.map { it.index }.toSet()
-            i++
+            return if (key in LOGA_ID_KEYS) "$key:" + (if (cr) "\r" else "") else raw
         }
-        if (hide.isNotEmpty()) for (k in i + 1 until lines.size) {
-            val cr = lines[k].endsWith('\r')
-            val cells = lines[k].trimEnd('\r').split(',').toMutableList()
-            if (cells.size <= 1) continue
-            for (c in hide) if (c < cells.size) cells[c] = "0"
-            lines[k] = cells.joinToString(",") + if (cr) "\r" else ""
-        }
-        return lines.joinToString("\n")
     }
 
     fun meta(text: String, mode: Mode, sha: Map<String, String>): String {

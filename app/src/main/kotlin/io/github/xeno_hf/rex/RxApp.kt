@@ -14,6 +14,7 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import rx.session.SessionState
@@ -61,12 +62,15 @@ class RxService : Service() {
         }
         if (wake == null) {
             wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RX:session").apply {
-                setReferenceCounted(false); acquire(6 * 60 * 60 * 1000L)
+                setReferenceCounted(false); acquire(WAKE_HOLD_MS)
             }
         }
         if (job == null) {
             val repo = repo()
             job = repo.scope.launch {
+                // 喚醒鎖定期續約：連線多久就保多久（原本固定 6 小時，長途會斷錄）。每次只保 WAKE_HOLD_MS，
+                // 服務萬一沒被正常收掉，最多再佔這麼久就自動放開。不計數的鎖重新 acquire 會把到期時間往後推。
+                launch { while (true) { delay(WAKE_RENEW_MS); wake?.acquire(WAKE_HOLD_MS) } }
                 combine(repo.state, repo.recording) { s, r -> s to r }.collect { (s, r) ->
                     val text = when (s) {
                         SessionState.Streaming -> getString(R.string.st_connected)
@@ -115,6 +119,8 @@ class RxService : Service() {
     companion object {
         const val CHANNEL = "rx_session"
         const val ACTION_STOP = "io.github.xeno_hf.rex.STOP"
+        private const val WAKE_RENEW_MS = 30 * 60 * 1000L
+        private const val WAKE_HOLD_MS = 2 * WAKE_RENEW_MS
         fun start(ctx: Context) = ContextCompat.startForegroundService(ctx, Intent(ctx, RxService::class.java))
         fun stop(ctx: Context) = ctx.stopService(Intent(ctx, RxService::class.java))
     }

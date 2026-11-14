@@ -108,6 +108,14 @@ class Repo(val platform: Platform) {
     private val framesLock = SynchronizedObject()
     val tick = MutableStateFlow(0L) // 診斷頁刷新用
 
+    /** 分享用副本的位置；[Platform.cacheDir] 底下，Android 的 FileProvider 只開放這裡。 */
+    val shareDir: Path get() = Path(platform.cacheDir, "share")
+
+    init {
+        // 上次分享留下的副本（含舊版放在 filesDir/share 的）在啟動時清掉；分享當下不清，接收端可能還在讀
+        scope.launch { runCatching { Fs.delete(shareDir); Fs.delete(Path(platform.filesDir, "share")) } }
+    }
+
     var session: Session? = null; private set
     private var stateJob: Job? = null
     private var idleJob: Job? = null
@@ -267,6 +275,9 @@ class Repo(val platform: Platform) {
     /** 這次連線有沒有登入成功（儀表鈕除 MAP 外都要）。 */
     val ecuLoggedIn = MutableStateFlow(false)
     private var loginJob: Job? = null
+    /** 儀表鈕在 ECU 上的開關（[Session.dashSwitch]）；沒讀到的不在表裡，按鈕退回看即時通道。 */
+    val dashSwitch = MutableStateFlow<Map<DashFn, Boolean>>(emptyMap())
+    private var switchJob: Job? = null
 
     private fun emit(label: String, o: ControlMsg.Outcome, detail: String? = null) {
         lastControl.value = ControlMsg(label, o, detail, ++controlSerial)
@@ -467,13 +478,15 @@ class Repo(val platform: Platform) {
             val pw = if (t is Target.Demo) DEFAULT_ECU_PASSWORD else secrets.get()?.trim()?.toIntOrNull() ?: DEFAULT_ECU_PASSWORD
             var created: Session? = null
             val s = Session(connector, table, pw, scope, nanoTime = platform::elapsedNanos,
-                tableFor = if (t is Target.Ecu) ({ p -> tableForPlatform({ created }, t, preset, p, created?.table ?: table) }) else null)
+                tableFor = if (t is Target.Ecu) ({ p -> tableForPlatform({ created }, t, preset, p, created?.table ?: table) }) else null,
+                dashSwitches = if (t is Target.Ecu) ECU_SWITCH_FUNS else emptySet())
             created = s
             s.addListener(listener)
             if (uplinkEnabled) startUplink(s, t, table)
             session = s
             target.value = t
             loginJob = scope.launch { s.loggedIn.collect { ecuLoggedIn.value = it } }
+            switchJob = scope.launch { s.dashSwitch.collect { dashSwitch.value = it } }
             stateJob = scope.launch {
                 s.state.collectLatest {
                     state.value = it
@@ -519,6 +532,7 @@ class Repo(val platform: Platform) {
         gps.stop()
         stateJob?.cancel(); stateJob = null
         loginJob?.cancel(); loginJob = null; ecuLoggedIn.value = false
+        switchJob?.cancel(); switchJob = null; dashSwitch.value = emptyMap()
         state.value = SessionState.Idle
         target.value = null
     }
@@ -619,6 +633,12 @@ class Repo(val platform: Platform) {
          * TCStatus #125（TC）、MGU_Mode2／4 #160／162＋MGU_Energy_Percent #1398（EB）、IOModule_Indicator_Status #973（Pit／LC）。
          */
         val DASH_CHANNELS = listOf(4, 9, 16, 125, 130, 160, 162, 973, 1398)
+        /**
+         * 開關狀態要直接讀 ECU 物件的儀表鈕（XTune 這三顆讀的也是校正表開關）。
+         * TC 的即時通道 TCStatus.TCEnable 在開關打開、車子靜止時仍是 0（實車），騎乘中來回跳；EB 沒有對應的即時通道。
+         * Pit／LC 的即時位元就是原版用的來源，不必另讀。
+         */
+        val ECU_SWITCH_FUNS = setOf(DashFn.AT, DashFn.TC, DashFn.EB)
         val RPM_MAXES = listOf(10, 12, 16)
 
         fun tableFor(p: Presets.Preset, reg: ChannelRegistry): rx.protocol.ChannelTable {

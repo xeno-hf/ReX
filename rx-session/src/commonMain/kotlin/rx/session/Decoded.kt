@@ -36,9 +36,29 @@ class DecodedLayout(val registry: ChannelRegistry, val table: ChannelTable) {
         return if (i < 0) null else entryDefs[i].physical(raw[i])
     }
 
-    /** 目前亮著的故障碼（Malf*／MGU_Malf* 容器的位元）。 */
-    fun activeMalfunctions(raw: LongArray): List<ChannelDef> =
-        columns.filter { it.def.isBit && it.def.name.contains("Malf") && value(it, raw) > 0.5 }.map { it.def }
+    private val faultColumns: List<Column> by lazy { columns.filter { it.def.isBit && isFaultCode(it.def.name) } }
+    private val malfFlagColumns: List<Column> by lazy {
+        columns.filter { it.def.isBit && it.def.name.contains("Malf") && !isFaultCode(it.def.name) }
+    }
+
+    /** 目前亮著的故障碼：Malf 族位元裡名稱是故障碼的那些（見 [isFaultCode]）。 */
+    fun activeMalfunctions(raw: LongArray): List<ChannelDef> = faultColumns.filter { value(it, raw) > 0.5 }.map { it.def }
+
+    /**
+     * Malf 族裡不是故障碼的位元：ECU 自己的狀態旗標（Malf8.Malf_On、MILReq、…KeyOn_old）和沒有名字的 bitN。
+     * 意義沒有逐一查證，所以不當故障列，只另外顯示。
+     */
+    fun activeMalfFlags(raw: LongArray): List<ChannelDef> = malfFlagColumns.filter { value(it, raw) > 0.5 }.map { it.def }
+
+    companion object {
+        private val FAULT_CODE = Regex("[PUCB][0-9A-F]{4}(_.*)?")
+
+        /** 「容器.代碼」裡容器名含 Malf、代碼是 P／U／C／B＋四位十六進位（可帶 _1 這類尾碼，例 BMS_Malf0.P058D_1）。 */
+        fun isFaultCode(name: String): Boolean {
+            val dot = name.indexOf('.')
+            return dot > 0 && name.substring(0, dot).contains("Malf") && FAULT_CODE.matches(name.substring(dot + 1))
+        }
+    }
 }
 
 /** 頻道表預設組。名錄沒有的 absid 自動略過。 */

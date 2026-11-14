@@ -75,6 +75,11 @@ class Session(
      * 內建定義依平台換名錄時用；null＝一律用建構時的表。
      */
     private val tableFor: ((EcuPlatform?) -> ChannelTable)? = null,
+    /**
+     * 每次武裝完成且已登入時，要從 ECU 讀回開關狀態的儀表鈕（一顆一次 SDO 讀取，不輪詢）。
+     * 即時通道不一定反映開關：實車 TC 開著、靜止時 TCStatus.TCEnable 仍是 0。
+     */
+    private val dashSwitches: Set<DashFn> = emptySet(),
 ) {
     /** 目前的頻道表；[tableFor] 可能在連線判別平台後換掉。 */
     @Volatile var table: ChannelTable = table; private set
@@ -137,6 +142,12 @@ class Session(
     /** 這次連線是否登入成功（0x6A0 `89 00`）。斷線、重新武裝時歸 false。儀表鈕除 MAP 外都依此決定能不能送。 */
     private val _loggedIn = MutableStateFlow(false)
     val loggedIn: StateFlow<Boolean> = _loggedIn
+
+    /** 儀表鈕在 ECU 上的開關（物件字典讀回值）。沒讀到的不在表裡；換一條 TCP 連線就清空重讀。 */
+    private val _dashSwitch = MutableStateFlow<Map<DashFn, Boolean>>(emptyMap())
+    val dashSwitch: StateFlow<Map<DashFn, Boolean>> = _dashSwitch
+    private fun DashFn.isOn(byte: Int) = if (bit0) byte and 1 == 1 else byte == 1
+    private fun noteSwitch(fn: DashFn, byte: Int) = _dashSwitch.update { it + (fn to fn.isOn(byte)) }
     // 寫時複製（CopyOnWriteArrayList 的跨平台替代）：遍歷拿到的永遠是一份不變的快照
     private val listenerList = MutableStateFlow<List<SessionListener>>(emptyList())
     private val listeners: List<SessionListener> get() = listenerList.value
@@ -167,6 +178,7 @@ class Session(
         transport?.close(); transport = null
         streaming = false
         _loggedIn.value = false
+        _dashSwitch.value = emptyMap()
         _state.value = SessionState.Stopped
         event("Session ended")
     }
@@ -195,6 +207,7 @@ class Session(
             }
             event("TCP connected")
             platformSeen = false
+            _dashSwitch.value = emptyMap()
             try {
                 coroutineScope { runConnected(t) }
             } catch (e: CancellationException) {
@@ -412,7 +425,8 @@ class Session(
         }
         val old = cur.first.firstOrNull()?.toInt()?.and(0xFF)
             ?: return@withLock WriteResult.Error("read returned 0 bytes, nothing written")
-        val isOn = if (fn.bit0) old and 1 == 1 else old == 1
+        noteSwitch(fn, old)
+        val isOn = fn.isOn(old)
         val want = on ?: !isOn
         val next = when {
             fn == DashFn.EB -> if (want) old or 0x01 else old and 0xFE
@@ -427,7 +441,8 @@ class Session(
     /** 讀 ECU 上某顆儀表鈕目前是開或關（讀不到回 null）。 */
     suspend fun readDash(fn: DashFn): Boolean? = rpcLock.withLock {
         val b = readObjectLocked(fn.index, 0, block = false).getOrNull()?.first?.firstOrNull()?.toInt()?.and(0xFF) ?: return@withLock null
-        if (fn.bit0) b and 1 == 1 else b == 1
+        noteSwitch(fn, b)
+        fn.isOn(b)
     }
 
     private fun WriteResult.describe() = when (this) {
@@ -534,6 +549,10 @@ class Session(
         // ECU 本來就在廣播時，第一輪會在握手途中就到，onRound 先設了 Streaming 又被後面的 Arming 蓋掉，
         // 而 streaming 旗標已是 true 不會再設一次 → 畫面卡「連線中」但資料在跑。收到就明確收尾成 Streaming。
         if (got) { streaming = true; _state.value = SessionState.Streaming }
+        // 讀不到（被拒、逾時）就保留同一條連線上次讀到的值；從沒讀到過的不在表裡，畫面自己退回看即時通道
+        if (got && _loggedIn.value) for (fn in dashSwitches) {
+            readObjectLocked(fn.index, 0, block = false, timeoutMs = 600).getOrNull()?.first?.firstOrNull()?.let { noteSwitch(fn, it.toInt() and 0xFF) }
+        }
         if (!got) {
             _state.value = SessionState.NoBroadcast(
                 "ECU is not streaming yet; retrying in ${timing.rearmIntervalMs / 1000} s. Make sure the ignition is on."

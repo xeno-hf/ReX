@@ -123,6 +123,64 @@ class ShareExportTest {
         } finally { src.deleteRecursively(); dst.deleteRecursively() }
     }
 
+    /** 串流處理的邊界：記錄數跨批次、loga 行跨讀取塊、CRLF 與沒有結尾換行都要逐位元組保留。 */
+    @Test fun streamingKeepsBatchAndLineBoundariesIntact() {
+        val src = Files.createTempDirectory("rex-stream-src").toFile()
+        val dst = Files.createTempDirectory("rex-stream-dst").toFile().also { it.delete() }
+        try {
+            // 9000 筆記錄（超過一批 4096 筆）；0x1008 的讀取起始與回應刻意落在不同批次
+            val n = 9000
+            val raw = java.io.ByteArrayOutputStream().also { o ->
+                o.write(RxRaw.MAGIC)
+                for (i in 0 until n) o.write(RxRaw.encodeRecord(i.toLong(), RxRaw.DIR_RX, Frame(0x181, byteArrayOf(1, i.toByte(), (i shr 8).toByte()))).let { r ->
+                    when (i) {
+                        4095 -> RxRaw.encodeRecord(i.toLong(), RxRaw.DIR_TX, Frame(0x601, byteArrayOf(0x40, 0x08, 0x10, 0, 0, 0, 0, 0)))
+                        4096 -> RxRaw.encodeRecord(i.toLong(), RxRaw.DIR_RX, Frame(0x581, byteArrayOf(0x41, 0x08, 0x10, 0, 9, 9, 9, 9)))
+                        else -> r
+                    }
+                })
+            }.toByteArray()
+            File(src, "frames.rxraw").writeBytes(raw)
+            val row = "1.0,1500,25.123456," + "7,".repeat(40_000) + "9"
+            val loga = "<aRacer MX APP Log File>\r\nECU SN:SECRET\r\n<VAR NAME>\r\nTime,RPM,Phone_GPS_Latitude\r\n<DATA START>\r\n$row\r\n$row"
+            File(src, "decoded.loga").writeText(loga)
+
+            ShareExport.copySession(Path(src.path), Path(dst.path), ShareExport.Mode.PUBLIC)
+
+            assertContentEquals(ShareExport.rxraw(raw, ShareExport.Mode.PUBLIC), File(dst, "frames.rxraw").readBytes())
+            val fr = frames(File(dst, "frames.rxraw"))
+            assertEquals(n, fr.size)
+            assertTrue(fr[4096].second.copyOfRange(11, 18).all { it == 0.toByte() }, "identity reply after a batch boundary")
+            val out = File(dst, "decoded.loga").readText()
+            assertEquals(ShareExport.loga(loga, ShareExport.Mode.PUBLIC), out)
+            assertEquals(loga.replace("SECRET", "").replace("25.123456", "0"), out)
+
+            // 完整診斷：loga 與事件逐位元組照抄
+            dst.deleteRecursively()
+            ShareExport.copySession(Path(src.path), Path(dst.path), ShareExport.Mode.DIAGNOSTIC)
+            assertContentEquals(File(src, "decoded.loga").readBytes(), File(dst, "decoded.loga").readBytes())
+            assertContentEquals(ShareExport.rxraw(raw, ShareExport.Mode.DIAGNOSTIC), File(dst, "frames.rxraw").readBytes())
+        } finally { src.deleteRecursively(); dst.deleteRecursively() }
+    }
+
+    /** App 被系統結束時，最後一筆記錄可能只寫了一半：分享要成功，只帶完整的記錄；內容壞掉的仍然拒絕。 */
+    @Test fun interruptedRecordingSharesItsCompleteRecords() {
+        val src = Files.createTempDirectory("rex-trunc-src").toFile()
+        val dst = Files.createTempDirectory("rex-trunc-dst").toFile().also { it.delete() }
+        try {
+            val one = RxRaw.encodeRecord(1, RxRaw.DIR_RX, Frame(0x181, byteArrayOf(1)))
+            File(src, "frames.rxraw").writeBytes(RxRaw.MAGIC + one + one + one.copyOf(20))
+            ShareExport.copySession(Path(src.path), Path(dst.path), ShareExport.Mode.PUBLIC)
+            assertContentEquals(RxRaw.MAGIC + one + one, File(dst, "frames.rxraw").readBytes())
+
+            dst.deleteRecursively()
+            File(src, "frames.rxraw").writeBytes(RxRaw.MAGIC + one + one.copyOf().also { it[20] = (it[20] + 1).toByte() })
+            kotlin.test.assertFailsWith<IllegalArgumentException> { ShareExport.copySession(Path(src.path), Path(dst.path), ShareExport.Mode.PUBLIC) }
+            File(src, "frames.rxraw").writeBytes(byteArrayOf(1, 2, 3))
+            kotlin.test.assertFailsWith<IllegalArgumentException> { ShareExport.copySession(Path(src.path), Path(dst.path), ShareExport.Mode.PUBLIC) }
+        } finally { src.deleteRecursively(); dst.deleteRecursively() }
+    }
+
     @Test fun legacyRecordingWithRawPasswordIsCleanedOnShare() {
         val b = RxRaw.MAGIC + RxRaw.encodeRecord(1, RxRaw.DIR_TX, Rpc().login(password))
         val out = ShareExport.rxraw(b, ShareExport.Mode.DIAGNOSTIC)

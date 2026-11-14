@@ -60,6 +60,7 @@ private fun MalfPane() {
     val seen by repo.malfSeen.collectAsState()
     val l = live
     val active = l?.layout?.activeMalfunctions(l.raw).orEmpty()
+    val flags = l?.layout?.activeMalfFlags(l.raw).orEmpty()
     Column(Modifier.verticalScroll(rememberScrollState())) {
         SectionTitle(stringResource(R.string.malf_now))
         if (l == null) Text(stringResource(R.string.not_connected), color = RxColors.muted)
@@ -71,6 +72,13 @@ private fun MalfPane() {
         seen.entries.sortedBy { it.value }.forEach { (n, t) -> MalfRow(stringResource(R.string.malf_first, n, rx.session.WallClock.format(t, "HH:mm:ss")), RxColors.warn) }
         Spacer(Modifier.height(12.dp))
         Text(stringResource(R.string.malf_hint), color = RxColors.muted, fontSize = 12.sp)
+        // 名字裡有 Malf 但不是故障碼的位元（Malf_On、MILReq、…KeyOn_old、沒名字的 bitN）：照實列出，不當故障
+        if (flags.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            SectionTitle(stringResource(R.string.malf_flags, flags.size))
+            flags.forEach { d -> Text(d.name, color = RxColors.muted, modifier = Modifier.padding(vertical = 2.dp)) }
+            Text(stringResource(R.string.malf_flags_hint), color = RxColors.muted, fontSize = 12.sp)
+        }
     }
 }
 

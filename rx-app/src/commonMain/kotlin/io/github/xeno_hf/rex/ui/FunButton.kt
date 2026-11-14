@@ -57,34 +57,34 @@ enum class EbStatus(val label: String) { Ready("eBoost Ready"), Running("eBoost 
 data class FunState(val on: Boolean?, val lit: Boolean, val note: String?)
 
 /**
- * 狀態全看即時通道（原版 AT／TC／EB 讀的是校正表開關，RX 唯讀不讀校正表）：
- * - AT：Fuel5.WBO2_AT_En
+ * AT／TC／EB 的開關從 ECU 讀回（[switchOn]，原版讀的也是 ECU 上的開關，物件見 [DashFn]）；還沒讀到（沒登入、ECU 拒讀）才退回看即時通道：
+ * - AT：退回看 Fuel5.WBO2_AT_En
  * - Pit／LC：IOModule_Indicator_Status #973 的 bit4／bit2（同原版）
- * - TC：開＝TCStatus.TCEnable；作動＝TCStatus.TCCtrActEn（原版 TCS 燈 icon_tcs_imgv 看的 -1252＝#125 bit2）
- * - EB：三態見 [DashData.eBoostStatus]；Ready／Charging 維持開啟的金框，只有 Running 綠色填滿。
- *   整趟是 0，eBoost 卻有 26% 時間在作動，不能拿來當開關。
+ * - TC：作動＝TCStatus.TCCtrActEn（原版 TCS 燈 icon_tcs_imgv 看的 -1252＝#125 bit2）。
+ *   TCStatus.TCEnable 不是開關：實車開關開著，靜止時它是 0，騎乘中在 0／1 之間來回跳。只有還沒讀到開關時才退回看它。
+ * - EB：開著（或還沒讀到）顯示三態（見 [DashData.eBoostStatus]）：Ready／Charging 維持開啟的亮框，只有 Running 整顆填色；
+ *   讀到關著就顯示 OFF，除非即時通道說正在作動。
+ *   即時通道沒有對應的開關：MGU_Mode4.MGU_eBoost_SW 在一趟實車紀錄裡整趟是 0，eBoost 卻有 26% 時間在作動。
  */
-fun funState(k: FunKind, d: DashData): FunState {
+fun funState(k: FunKind, d: DashData, switchOn: Boolean? = null): FunState {
     fun onOff(on: Boolean?) = when (on) { true -> "ON"; false -> "OFF"; null -> "—" }
     return when (k) {
-        FunKind.AT -> d.bit("Fuel5.WBO2_AT_En").let { FunState(it, false, onOff(it)) }
+        FunKind.AT -> (switchOn ?: d.bit("Fuel5.WBO2_AT_En")).let { FunState(it, false, onOff(it)) }
         FunKind.PIT -> d.ioBit(4).let { FunState(it, false, onOff(it)) }
         FunKind.LC -> d.ioBit(2).let { FunState(it, false, onOff(it)) }
         FunKind.TC -> {
-            val on = d.bit("TCStatus.TCEnable")
+            val on = switchOn ?: d.bit("TCStatus.TCEnable")
             val act = d.bit("TCStatus.TCCtrActEn") == true
             FunState(on, act, if (act) "ACTIVE" else onOff(on))
         }
         FunKind.EB -> {
             val st = d.eBoostStatus
-            val note = when (st) { EbStatus.Running -> "RUN"; EbStatus.Ready -> "READY"; EbStatus.Charging -> "CHARGE"; null -> "—" }
-            FunState(st?.let { true }, st == EbStatus.Running, note)
+            if (switchOn == false && st != EbStatus.Running) return FunState(false, false, "OFF")
+            val note = when (st) { EbStatus.Running -> "RUN"; EbStatus.Ready -> "READY"; EbStatus.Charging -> "CHARGE"; null -> if (switchOn == true) "ON" else "—" }
+            FunState(switchOn ?: st?.let { true }, st == EbStatus.Running, note)
         }
     }
 }
-
-/** 填色：TC 用警示橘（像車上的 TCS 燈）、EB 用水晶綠（電）。 */
-private fun litColor(k: FunKind) = when (k) { FunKind.TC -> RxColors.warn; FunKind.EB -> RxColors.accent; else -> RxColors.brand }
 
 /** 第 [slot] 顆（0＝A、1＝B）多功能鈕。 */
 @OptIn(ExperimentalFoundationApi::class)
@@ -94,7 +94,8 @@ fun FunButton(slot: Int, d: DashData, modifier: Modifier = Modifier, labelSize: 
     val ids by repo.funButtons.collectAsState()
     val loggedIn by repo.ecuLoggedIn.collectAsState()
     val kind = FunKind.of(ids[slot])
-    val st = funState(kind, d)
+    val switches by repo.dashSwitch.collectAsState()
+    val st = funState(kind, d, switches[kind.fn])
     var pick by remember { mutableStateOf(false) }
     var confirmAt by remember { mutableStateOf(false) }
     if (confirmAt) AlertDialog(
@@ -107,7 +108,8 @@ fun FunButton(slot: Int, d: DashData, modifier: Modifier = Modifier, labelSize: 
     )
     if (pick) FunPicker(kind, FunKind.of(ids[1 - slot]), onPick = { repo.setFunButton(slot, it.id); pick = false }, onDismiss = { pick = false })
 
-    val hot = litColor(kind)
+    // 開著＝亮框，作動＝整顆填色；兩者都用主題色，TC 和 EB 同一套。
+    val hot = RxColors.brand
     val on = st.on == true
     val lit = st.lit
     val shape = RoundedCornerShape(14.dp)
@@ -117,7 +119,7 @@ fun FunButton(slot: Int, d: DashData, modifier: Modifier = Modifier, labelSize: 
         else -> SolidColor(RxColors.card)
     }
     val ink = when {
-        lit -> if (RxColors.palette.light) Color.White else RxColors.bg
+        lit -> RxColors.palette.onBrand
         on -> RxColors.text
         else -> RxColors.muted.copy(alpha = 0.55f)
     }

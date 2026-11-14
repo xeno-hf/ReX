@@ -112,6 +112,7 @@
     <string name="rec_stop_recording">停止錄製</string>
     <string name="rec_list">錄製紀錄（%d）</string>
     <string name="rec_unfinished">%.1f MB・沒有正常結束，資料仍保留</string>
+    <string name="rec_in_progress">錄製中</string>
     <string name="rec_share_all">分享全部</string>
     <string name="rec_share_loga">分享 loga</string>
     <string name="rec_share_title">分享紀錄</string>
@@ -129,6 +130,8 @@
     <string name="malf_seen">這次連線出現過（%d）</string>
     <string name="malf_first">%1$s　首次 %2$s</string>
     <string name="malf_hint">顯示車上電腦回報的故障碼。</string>
+    <string name="malf_flags">狀態旗標（%d）</string>
+    <string name="malf_flags_hint">車上電腦自己的狀態位元，不是故障碼。</string>
 
     <string name="set_look">外觀</string>
     <string name="set_look_hint">暗色夜騎不刺眼，淺色在大太陽下看得清楚。</string>

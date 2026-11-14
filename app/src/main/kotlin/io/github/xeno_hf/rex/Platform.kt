@@ -189,6 +189,7 @@ class AndroidPlatform(private val app: Context) : Platform {
     override val secrets = AndroidSecretStore(app)
     override val gps = AndroidGps(app)
     override val filesDir = Path(app.filesDir.absolutePath)
+    override val cacheDir = Path(app.cacheDir.absolutePath)
     override val sessionsRoot = Path(File(app.getExternalFilesDir(null) ?: app.filesDir, "sessions").absolutePath)
     override val appVersion: String = BuildConfig.VERSION_NAME
     override val deviceName: String = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
@@ -274,6 +275,8 @@ class AndroidPlatform(private val app: Context) : Platform {
         val uri = androidx.core.content.FileProvider.getUriForFile(app, "${app.packageName}.files", f)
         val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType(mime).putExtra(android.content.Intent.EXTRA_STREAM, uri)
             .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // 讀取授權跟著 ClipData 走：有它，分享選單（預覽）和接收的 App 才都讀得到這個 content URI
+        send.clipData = android.content.ClipData.newRawUri(f.name, uri)
         app.startActivity(android.content.Intent.createChooser(send, title).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
