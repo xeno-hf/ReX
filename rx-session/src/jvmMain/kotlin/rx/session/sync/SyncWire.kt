@@ -132,10 +132,13 @@ object SyncWire {
     }
 
     /**
-     * 伺服器收一條連線（[MAGIC] 已經讀掉）。配對成功回 [Accepted.Paired]（呼叫的人存起來），
+     * 伺服器收一條連線（[MAGIC] 已經讀掉）。配對成功時先交給 [onPaired] 存起來，存好才回確認給手機，
+     * 再回 [Accepted.Paired]；手機收到確認就能馬上連過來，不會被當成沒配對。
+     * [onPaired] 正常回來＝已經存好、[findPeer] 查得到；丟例外就不回確認，手機配對失敗，這組碼也已用掉。
+     * 存好之後確認才送丟（斷線）時只有電腦這邊有配對，手機重新配對會換掉它。
      * 一般連線回 [Accepted.Session]。被拒時先回錯誤給對方，再丟 [SyncRefused]。
      */
-    fun accept(inp: InputStream, out: OutputStream, me: Identity, findPeer: (String) -> Peer?, pairing: () -> PairingWindow?): Accepted {
+    fun accept(inp: InputStream, out: OutputStream, me: Identity, findPeer: (String) -> Peer?, pairing: () -> PairingWindow?, onPaired: (Peer) -> Unit): Accepted {
         val (m, raw1) = readMsg(inp)
         fun refuse(reason: String): Nothing { writeMsg(out, mapOf("err" to reason)); throw SyncRefused(reason) }
         when (m["op"]) {
@@ -154,8 +157,10 @@ object SyncWire {
                     if (!SyncCrypto.same(SyncCrypto.unhex(need(r, "mac")), SyncCrypto.hmac(ak, bytes("client")))) { w.failures++; refuse("bad-code") }
                     w.done = true
                 }
+                val peer = Peer(cid, cname, SyncCrypto.hmac(ak, bytes("token")), System.currentTimeMillis())
+                onPaired(peer)
                 writeMsg(out, mapOf("mac" to SyncCrypto.hex(SyncCrypto.hmac(ak, bytes("server")))))
-                return Accepted.Paired(Peer(cid, cname, SyncCrypto.hmac(ak, bytes("token")), System.currentTimeMillis()))
+                return Accepted.Paired(peer)
             }
             "hello" -> {
                 val cid = need(m, "id")

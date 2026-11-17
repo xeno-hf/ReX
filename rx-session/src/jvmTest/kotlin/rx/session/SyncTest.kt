@@ -39,7 +39,9 @@ class SyncTest {
 
         override fun findPeer(id: String) = synchronized(peers) { peers[id] }
         override fun pairing() = window
-        override fun onPaired(peer: SyncWire.Peer) { synchronized(peers) { peers[peer.id] = peer } }
+        /** 存之前先跑：測試用來卡住或弄壞存檔。 */
+        @Volatile var beforeStore: () -> Unit = {}
+        override fun onPaired(peer: SyncWire.Peer) { beforeStore(); synchronized(peers) { peers[peer.id] = peer } }
         override fun live(peer: SyncWire.Peer, input: InputStream): Boolean {
             liveEnded = UplinkStream.read(input, object : UplinkStream.Handler {
                 override fun onHello(text: String) { hello = text }
@@ -96,8 +98,39 @@ class SyncTest {
         assertEquals("bad-code", assertFailsWith<SyncWire.SyncRefused> { client().pair("ABCD2346ABCD2346") }.reason)
         val pc = client().pair("abcd 2345")
         assertEquals("a1b2c3d4e5f6a1b2c3d4e5f6", pc.id); assertEquals("Desktop", pc.name)
-        assertContentEquals(pc.token, host.peers["0123456789abcdef01234567"]!!.token)
+        // 手機收到確認時電腦一定已經存好
+        assertContentEquals(pc.token, assertNotNull(host.findPeer("0123456789abcdef01234567")).token)
         // 一組碼只配一台
+        assertEquals("no-pairing", assertFailsWith<SyncWire.SyncRefused> { client().pair("ABCD2345") }.reason)
+    }
+
+    /** 電腦還沒存好之前，手機不能收到配對成功。 */
+    @Test
+    fun phoneIsConfirmedOnlyAfterTheComputerStoredIt() {
+        val storing = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        host.beforeStore = { storing.countDown(); release.await() }
+        host.window = SyncWire.PairingWindow("ABCD2345", System.currentTimeMillis() + 60_000)
+        val done = java.util.concurrent.CompletableFuture.supplyAsync { client().pair("ABCD2345") }
+        try {
+            assertTrue(storing.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            Thread.sleep(300)
+            assertEquals(false, done.isDone)
+        } finally {
+            release.countDown()
+        }
+        val pc = done.get(10, java.util.concurrent.TimeUnit.SECONDS)
+        assertContentEquals(pc.token, assertNotNull(host.findPeer("0123456789abcdef01234567")).token)
+    }
+
+    /** 電腦存不進去：手機配對失敗、電腦沒有這台，碼也用掉了。 */
+    @Test
+    fun storageFailureFailsThePairingOnThePhone() {
+        host.beforeStore = { throw java.io.IOException("disk full") }
+        host.window = SyncWire.PairingWindow("ABCD2345", System.currentTimeMillis() + 60_000)
+        assertFailsWith<java.io.IOException> { client().pair("ABCD2345") }
+        assertEquals(null, host.findPeer("0123456789abcdef01234567"))
+        host.beforeStore = {}
         assertEquals("no-pairing", assertFailsWith<SyncWire.SyncRefused> { client().pair("ABCD2345") }.reason)
     }
 

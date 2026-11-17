@@ -135,8 +135,8 @@ class SyncServer(
             val rawOut = sock.getOutputStream().buffered(1 shl 15)
             val magic = SyncWire.readMagic(rawIn)
             if (!magic.contentEquals(SyncWire.MAGIC)) { host.log("Sync: $who is not a ReX sync connection, closed"); return }
-            when (val a = SyncWire.accept(rawIn, rawOut, me, host::findPeer, host::pairing)) {
-                is SyncWire.Accepted.Paired -> { host.onPaired(a.peer); host.log("Sync: paired ${a.peer.name} ($who)") }
+            when (val a = SyncWire.accept(rawIn, rawOut, me, host::findPeer, host::pairing, host::onPaired)) {
+                is SyncWire.Accepted.Paired -> host.log("Sync: paired ${a.peer.name} ($who)")
                 is SyncWire.Accepted.Session -> {
                     val o = a.opened
                     if (!track(o.peer, sock)) { host.log("Sync: ${o.peer.name} is no longer paired ($who)"); return }
