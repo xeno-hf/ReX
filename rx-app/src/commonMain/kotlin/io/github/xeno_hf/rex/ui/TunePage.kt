@@ -206,6 +206,8 @@ internal fun TablesEditor(work: Tuning.Work, item: CalItems.Item?, onBack: (() -
     val tune = work.tune
     val rev by tuning.revision.collectAsState()
     val states by work.live.states.collectAsState()
+    // 鎖著等重讀的表（清除學習值之後）：復原可能動到它們，先不給按
+    val held by work.live.held.collectAsState()
     val scope = rememberCoroutineScope()
     val lang = langTag()
     var showAll by remember { mutableStateOf(repo.platform.kv.getBoolean("tuneShowAll", false)) }
@@ -300,8 +302,8 @@ internal fun TablesEditor(work: Tuning.Work, item: CalItems.Item?, onBack: (() -
         }
         Spacer(Modifier.height(4.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Tool(stringResource(R.string.tune_undo), tune.canUndo) { tune.undo()?.let { id -> tuning.edited(id); msg = Strings.get(R.string.tune_undone) } }
-            Tool(stringResource(R.string.tune_read_all), writable) {
+            Tool(stringResource(R.string.tune_undo), tune.canUndo && held.isEmpty()) { tune.undo()?.let { id -> tuning.edited(id); msg = Strings.get(R.string.tune_undone) } }
+            Tool(stringResource(R.string.tune_read_all), writable || def.absId in held) {
                 scope.launch {
                     msg = runCatching { tuning.readTable(def.absId) }.fold(
                         { ch -> Strings.get(if (ch) R.string.tune_read_changed else R.string.tune_read_same) },

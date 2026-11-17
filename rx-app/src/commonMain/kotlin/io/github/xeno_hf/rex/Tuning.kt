@@ -7,7 +7,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.ContinuationInterceptor
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.io.files.Path
 import rx.session.Session
@@ -215,12 +217,39 @@ class Tuning(private val repo: Repo, private val scope: CoroutineScope) {
     /** 全讀（XTune 的「全讀」）：從 ECU 重讀這張表換進編輯器（可以復原）。回傳是否跟編輯器不同；失敗丟例外。 */
     suspend fun readTable(absId: Int): Boolean {
         val w = work ?: return false
-        val rows = w.live.readTable(absId).getOrThrow()
-        val cur = w.tune.rows(absId)!!
-        val changed = !(cur.size == rows.size && cur.indices.all { cur[it].contentEquals(rows[it]) })
-        check(w.tune.loadRows(absId, rows, undoable = true)) { "ECU rows do not fit the tune" }
-        revision.value++
+        var changed = false
+        // 換進編輯器在即時寫入的鎖裡做：命令後鎖住的表（清除學習值）這樣才解開；回呼叫的人（畫面）的執行緒改編輯器
+        val ui = currentCoroutineContext()[ContinuationInterceptor]!!
+        w.live.readTable(absId) { rows ->
+            withContext(ui) {
+                val cur = w.tune.rows(absId)!!
+                changed = !(cur.size == rows.size && cur.indices.all { cur[it].contentEquals(rows[it]) })
+                check(w.tune.loadRows(absId, rows, undoable = true)) { "ECU rows do not fit the tune" }
+                revision.value++
+            }
+        }.getOrThrow()
         return changed
+    }
+
+    /**
+     * 功能頁的「命令＋重讀」（清除學習值）：命令幀 [frame] 走 [Session.calCommand]（寫入閘門），之後重讀 [ids] 換進編輯器。
+     * 整段在 [LiveTuning.commandThenRead] 裡跟即時寫入互斥，開在 LiveTuning 的 scope 上：離開頁面也會做完。
+     */
+    suspend fun commandThenRead(w: Work, frame: ByteArray, ids: List<Int>, settleMs: Long): LiveTuning.CommandRead {
+        if (work !== w) return LiveTuning.CommandRead.notSent(Strings.get(R.string.tune_err_dropped))
+        // 編輯器只在畫面的執行緒改（呼叫的頁面離開了也一樣派回去）
+        val ui = currentCoroutineContext()[ContinuationInterceptor]!!
+        val r = w.live.commandThenRead(ids, settleMs, command = {
+            w.session.calCommand(frame).also { repo.log("Cal command ${frame.joinToString("") { b -> (b.toInt() and 0xFF).toString(16).padStart(2, '0') }}: ${it ?: "ACK"}") }
+        }) { id, rows ->
+            withContext(ui) {
+                check(w.tune.loadRows(id, rows, undoable = true)) { "ECU rows do not fit the tune" }
+                revision.value++
+            }
+        }
+        for ((id, why) in r.failed) repo.log("Tuning: table $id not re-read after the command: $why")
+        revision.value++
+        return r
     }
 
     /**

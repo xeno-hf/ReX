@@ -60,11 +60,17 @@ private class RxCalHost(
 
     override fun writable(absId: Int): Boolean = has(absId) && work.live.writable(absId)
     override fun status(absId: Int): LiveTuning.TableState? = states.value[absId]
+    override fun held(absId: Int): Boolean = absId in work.live.held.value
     override fun edited(absId: Int) = repo.tuning.edited(absId)
 
     override suspend fun readTables(ids: List<Int>): String? {
-        for (id in ids) runCatching { repo.tuning.readTable(id) }.onFailure { return "${tableTitle(id)}: ${it.message}" }
-        return null
+        // 每張都讀（一張失敗不跳過下一張），錯誤合在一起回報
+        val errors = ids.mapNotNull { id ->
+            try { repo.tuning.readTable(id); null }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { "${tableTitle(id)}: ${e.message}" }
+        }
+        return errors.takeIf { it.isNotEmpty() }?.joinToString("; ")
     }
 
     override suspend fun writeTables(ids: List<Int>): String? {
@@ -84,6 +90,12 @@ private class RxCalHost(
         val r = session.calCommand(CalCommands.sdoFrame(index, sub, value, bytes))
         repo.log("Cal command 0x${index.toString(16)}/$sub=0x${value.toString(16)}: ${r ?: "ACK"}")
         return r
+    }
+
+    override suspend fun commandThenRead(index: Int, sub: Int, value: Long, bytes: Int, ids: List<Int>, settleMs: Long): LiveTuning.CommandRead {
+        if (!online) return LiveTuning.CommandRead.notSent(CalText.get("cal_need_online", lang))
+        if (!CalCommands.writeAllowed(index, sub, value, bytes)) return LiveTuning.CommandRead.notSent("command not allowed")
+        return repo.tuning.commandThenRead(work, CalCommands.sdoFrame(index, sub, value, bytes), ids, settleMs)
     }
 
     override suspend fun readObject(index: Int, sub: Int): Result<ByteArray> {

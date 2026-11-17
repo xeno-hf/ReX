@@ -26,7 +26,7 @@ kotlin {
         }
         jvmTest.dependencies {
             implementation(kotlin("test"))
-            // ReX 的建置引用 xb-link 時沒有 xb-container（只在 XB 裡）；那邊不跑這裡的測試
+            // ReX 的建置引用 xb-link 時沒有 xb-container（只在 XB 裡）；那邊只跑 LiveTuningSafetyTest
             findProject(":xb-container")?.let { implementation(it) }
             findProject(":rx-session")?.let { implementation(it) }
         }
@@ -42,10 +42,11 @@ tasks.withType<Test>().configureEach {
 }
 
 // ReX 的建置：只用調校流程（EcuSync、LiveTuning，走 SdoPort）。XB 自己的連線（EcuLink、TCP）、監看與整包寫入（Amc）
-// 不編進 ReX，ReX 的每一幀都只能經過它自己的寫入閘門。沒有 xb-container，測試也只在 XB 跑。
+// 不編進 ReX，ReX 的每一幀都只能經過它自己的寫入閘門。測試只納入只走 SdoPort 的 LiveTuningSafetyTest；
+// 其他（要 EcuLink／Amc 或 xb-container）只在 XB 跑。iOS 目標的測試不跑。
 if (rootProject.name == "rx") {
     kotlin.sourceSets.getByName("commonMain").kotlin.exclude("**/EcuLink.kt", "**/Amc.kt", "**/LiveMonitor.kt")
     kotlin.sourceSets.getByName("jvmMain").kotlin.exclude("**/TcpTransport.kt")
-    kotlin.sourceSets.getByName("jvmTest").kotlin.setSrcDirs(emptyList<Any>())
-    tasks.matching { it.name.endsWith("Test") || it.name.startsWith("compileTestKotlin") }.configureEach { enabled = false }
+    kotlin.sourceSets.getByName("jvmTest").kotlin.include("**/LiveTuningSafetyTest.kt")
+    tasks.matching { it.name.startsWith("ios") && it.name.endsWith("Test") }.configureEach { enabled = false }
 }

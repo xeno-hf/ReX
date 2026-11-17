@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import xb.link.LiveTuning
 import xb.tune.CalItems
 import xb.tune.Cell
 import xb.tune.Convert
@@ -382,6 +383,63 @@ internal fun TpsLearnPage(host: CalHost, title: String, onBack: () -> Unit) {
             if (r != null) { msg.text = r; return@launch }
             vMin = (ad ?: 0.0) * 0.0048828125; vMax = 0.0
             phase = 1; delay(5200); phase = 2; delay(2000); phase = 0
+        }
+    }) { ask = false }
+}
+
+/**
+ * 清除 ECU 學習值（XTune 設定頁的「Set_ClearEcuLearn」，確認後送 0x2009 sub 0 ＝ 1，只送這一個命令）。
+ * 韌體收到後把窄域閉迴路學習表 79／80（D3NBO2_BL_Warm／Cold_CELL）整張填 0x80（中性），並重設怠速學習。
+ * 送命令、等韌體處理、重讀這兩張表換進編輯器，整段由宿主的即時寫入做（[CalHost.commandThenRead]）：
+ * 期間這兩張表不能寫、別的寫入等它做完，離開頁面也會做完，畫面與之後的全寫不會把舊學習值寫回去。
+ * 重讀失敗：兩張表維持鎖住，頁上的「重讀學習表」成功才解開。調校開始時的備份還原會連學習值一起寫回。
+ */
+@Composable
+internal fun ClearLearnPage(host: CalHost, title: String, onBack: () -> Unit) {
+    val msg = remember { PageMsg() }
+    val scope = rememberCoroutineScope()
+    val c = LocalCalColors.current
+    var busy by remember { mutableStateOf<String?>(null) } // 進行中的工作的字串鍵（清除中／讀取中）
+    var ask by remember { mutableStateOf(false) }
+    val ids = CalItems.CLEAR_LEARN_TABLES
+    val present = ids.all { host.has(it) }
+    // 別的頁開著時送出、還在做（或剛離開又回來）：兩張表在寫入中也算忙
+    val running = busy != null || ids.any { host.status(it) == LiveTuning.TableState.Writing }
+    // 命令後沒重讀成功的表：鎖著，要重讀（不管狀態徽章是失敗、讀回不同還是拒絕）
+    val locked = present && !running && ids.any { host.held(it) }
+    fun s(k: String) = CalText.get(k, host.lang)
+    fun go(label: String, block: suspend () -> String) {
+        scope.launch {
+            busy = label
+            try { msg.text = block() }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { msg.text = CalText.format("cal_clearlearn_error", host.lang, e.message ?: e::class.simpleName ?: "error") }
+            finally { busy = null }
+        }
+    }
+    CalFrame(host, title, emptyList(), emptyList(), onBack, msg) {
+        if (!host.online) { Warn(s("cal_need_online")); return@CalFrame }
+        if (!present) { Warn(CalText.format("cal_missing", host.lang, ids.filter { !host.has(it) }.joinToString("、"))); return@CalFrame }
+        Text(s("cal_clearlearn_desc"), color = c.text, fontSize = 15.sp)
+        Pill(if (running) s(busy ?: "cal_clearlearn_busy") else title, !running && !locked, Modifier.fillMaxWidth().testTag("clearlearn.start")) { ask = true }
+        if (locked) Pill(s("cal_clearlearn_reread"), true, Modifier.fillMaxWidth().testTag("clearlearn.reread")) {
+            go("cal_clearlearn_reading") { host.readTables(ids) ?: s("cal_clearlearn_reread_done") }
+        }
+        host.TableEditor(ids, Modifier.fillMaxWidth().height(320.dp))
+    }
+    if (ask) ConfirmDialog(host, title, s("cal_clearlearn_confirm"), {
+        go("cal_clearlearn_busy") {
+            // 送之前再確認一次兩張表都在（清完要重讀它們）
+            if (!host.online) return@go s("cal_need_online")
+            if (!ids.all { host.has(it) }) return@go CalText.format("cal_missing", host.lang, ids.filter { !host.has(it) }.joinToString("、"))
+            val r = host.commandThenRead(0x2009, 0, 1, 1, ids, settleMs = 300) // 韌體在下一輪主迴圈才處理旗標
+            when {
+                !r.sent -> r.command ?: s("cal_need_online")
+                r.failed.isNotEmpty() -> CalText.format("cal_clearlearn_refresh_failed", host.lang,
+                    r.failed.entries.joinToString("; ") { "${host.tableTitle(it.key)}: ${it.value}" })
+                r.command != null -> CalText.format("cal_clearlearn_unconfirmed", host.lang, r.command.orEmpty())
+                else -> s("cal_clearlearn_done")
+            }
         }
     }) { ask = false }
 }

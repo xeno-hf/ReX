@@ -39,6 +39,7 @@ fun CalPage(host: CalHost, item: CalItems.Item, colors: CalColors, onBack: () ->
             CalItems.Page.Service -> ServicePage(host, title, onBack)
             CalItems.Page.IdleAdj -> IdleAdjPage(host, title, onBack)
             CalItems.Page.TpsLearn -> TpsLearnPage(host, title, onBack)
+            CalItems.Page.ClearLearn -> ClearLearnPage(host, title, onBack)
             CalItems.Page.InjectorCal -> InjectorCalPage(host, title, onBack)
             CalItems.Page.ECvtAt -> ECvtAtPage(host, title, onBack)
             CalItems.Page.ECvtMt -> ECvtMtPage(host, title, onBack)
@@ -54,6 +55,8 @@ fun CalHost.usable(item: CalItems.Item): Boolean = when (item.page) {
     // 燈效不是表，是 0x689 的廠商訊框：X2 平台、連著 ECU 才能用
     CalItems.Page.RgbLed -> online && isX2
     CalItems.Page.IdleAdj, CalItems.Page.TpsLearn -> online
+    // 清除學習值：要連著 ECU，而且兩張學習表都在調校包裡（清完要重讀它們）
+    CalItems.Page.ClearLearn -> online && CalItems.CLEAR_LEARN_TABLES.all { has(it) }
     // SxS 的控制檔同號是別的表（官方只看機型，在 SxS 上這兩頁是壞的）：看表名
     CalItems.Page.EBoostX2 -> named(1230, "D1MGU_eBoost_Option")
     CalItems.Page.WindShield -> named(1009, "D1WindShield_Option")

@@ -1,6 +1,8 @@
 package xb.link
 
+import kotlinx.coroutines.delay
 import rx.protocol.EcuPlatform
+import rx.protocol.IOException
 import rx.protocol.SdoPort
 
 import xb.tune.TableDef
@@ -143,13 +145,37 @@ object EcuSync {
         return TableRead.Ok(def, rows)
     }
 
-    /** 整份讀回。[onProgress]（已讀表數、總表數）。 */
-    suspend fun readAll(link: SdoPort, tune: Tune, onProgress: (Int, Int) -> Unit = { _, _ -> }): Snapshot {
+    /**
+     * 讀一張表，逾時或讀不到就等 [retryDelayMs] 再整張重讀，最多 [attempts] 次。
+     * 最後一次還逾時就丟 [IOException]（訊息帶表名）；最後一次被拒或長度不對回 [TableRead.Failed]。
+     */
+    suspend fun readTableRetrying(link: SdoPort, def: TableDef, attempts: Int, retryDelayMs: Long, log: (String) -> Unit = {}): TableRead {
+        require(attempts >= 1 && retryDelayMs >= 0)
+        for (a in 1..attempts) {
+            val r = try {
+                readTable(link, def)
+            } catch (e: IOException) {
+                if (a == attempts) throw IOException("${def.name} (table ${def.absId}): ${e.message}")
+                log("Read ${def.name} (table ${def.absId}): ${e.message}; retry $a/${attempts - 1}")
+                delay(retryDelayMs)
+                continue
+            }
+            if (r is TableRead.Ok || a == attempts) return r
+            log("Read ${def.name} (table ${def.absId}): ${(r as TableRead.Failed).reason}; retry $a/${attempts - 1}")
+            delay(retryDelayMs)
+        }
+        error("unreachable")
+    }
+
+    /** 整份讀回。[onProgress]（已讀表數、總表數）。[attempts]＞1 時每張表照 [readTableRetrying] 重試。 */
+    suspend fun readAll(link: SdoPort, tune: Tune, attempts: Int = 1, retryDelayMs: Long = 0, log: (String) -> Unit = {},
+                        onProgress: (Int, Int) -> Unit = { _, _ -> }): Snapshot {
+        require(attempts >= 1 && retryDelayMs >= 0)
         val id = identity(link)
         val defs = tables(tune)
         val reads = ArrayList<TableRead>(defs.size)
         defs.forEachIndexed { i, def ->
-            reads += readTable(link, def)
+            reads += if (attempts > 1) readTableRetrying(link, def, attempts, retryDelayMs, log) else readTable(link, def)
             onProgress(i + 1, defs.size)
         }
         return Snapshot(id, reads)

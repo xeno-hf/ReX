@@ -40,6 +40,8 @@ interface CalHost {
     fun has(absId: Int): Boolean
     fun writable(absId: Int): Boolean
     fun status(absId: Int): LiveTuning.TableState?
+    /** 這張表鎖著等重讀（[LiveTuning.held]，清除學習值之後）：不能改，要 [readTables] 成功才解開。 */
+    fun held(absId: Int): Boolean
     /** [tune] 裡這張表被改了（改值、讀回、還原都算）：宿主排程寫入、重畫。 */
     fun edited(absId: Int)
     /** 從 ECU 重讀這幾張表（XTune 的全讀）；讀到的值放進 [tune]。完成時回 null 或錯誤原因。 */
@@ -51,6 +53,12 @@ interface CalHost {
      * 宿主要確認這個 index／值在允許清單裡才送；不允許或沒連線回原因。
      */
     suspend fun command(index: Int, sub: Int, value: Long, bytes: Int): String?
+    /**
+     * 送一個會讓 ECU 自己改掉 [ids] 的命令（清除學習值），等 [settleMs] 再重讀 [ids] 換進 [tune]。
+     * 宿主走 [LiveTuning.commandThenRead]：整段跟即時寫入互斥，頁面離開也會做完；重讀失敗的表鎖住，[readTables] 成功才解開。
+     * 允許清單、連線檢查同 [command]。
+     */
+    suspend fun commandThenRead(index: Int, sub: Int, value: Long, bytes: Int, ids: List<Int>, settleMs: Long): LiveTuning.CommandRead
     /** 讀一個不是調校表的物件（保養資訊 0x200F、狀態字 0x2000…）。回傳資料（little-endian）或失敗。 */
     suspend fun readObject(index: Int, sub: Int): Result<ByteArray>
     /**

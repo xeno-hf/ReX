@@ -10,11 +10,19 @@ object CalCommands {
         put(0x200E to 0, setOf(1L, 0x80L))              // 自動暖車 START／STOP
         put(0x2000 to 0, setOf(0L, 1L))                  // 怠速空氣量調整模式 開／關
         put(0x2001 to 0, setOf(1L))                      // TPS 學習開始
+        // 清除 ECU 學習值（「Set_ClearEcuLearn」→ case 6：a.p(8201, 0, 1, 1)）。
+        // Mini X／Super X／Mini XX／Super XX 的 ECU 收到後把窄域閉迴路學習表 79、80 整張填 0x80，並重設怠速學習（SXS 未確認）。
+        put(0x2009 to 0, setOf(1L))
         // 噴嘴校正測試命令：官方算 (f×128)<<2|step 存成 32 位元整數，宣告 2 bytes、4 個資料位元組照填，
         // 所以 160 那兩個值第 3 個資料位元組是 01（ECU 只看前 2 bytes＝0x4001／0x4002）。這裡照官方的 32 位元值送。
         put(0x2000 to 4, setOf(0x7801L, 0x14001L, 0x14002L, 0x0102L))
         for (s in 0..29) put(0x200F to s, null)          // 保養資訊：6 項 × 5 字，設定時寫前 3 字
     }
+
+    /** 只准一種寬度的命令（官方宣告的 bytes）：(index, sub) → bytes。沒列的照 1～4。 */
+    private val widths: Map<Pair<Int, Int>, Int> = mapOf(
+        (0x2009 to 0) to 1,                              // 清除學習值：官方 a.p(8201, 0, 1, 1)，幀 2F
+    )
 
     /** 可讀的命令物件（index → 允許的 sub；null＝任何 sub）。 */
     private val reads: Map<Int, Set<Int>?> = mapOf(
@@ -46,6 +54,7 @@ object CalCommands {
     fun writeAllowed(index: Int, sub: Int, value: Long, bytes: Int): Boolean {
         if (bytes !in 1..4) return false
         if (!writes.containsKey(index to sub)) return false
+        if (widths[index to sub]?.let { it != bytes } == true) return false
         val ok = writes[index to sub] ?: return true
         return value in ok
     }

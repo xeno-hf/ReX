@@ -15,10 +15,13 @@ object CalItems {
         D3InjAngle(false), Backfire(false), EBoost(false), EBoostX2(false), AutoWarmup(false), NbClosedLoop(false),
         IdleAdj(false), TpsLearn(false), InjectorCal(false), QsSetting(false), QsWizard(false), RButton(false),
         ResButton(false), RgbLed(false), WindShield(false), Exup(false), ECvtAt(false), ECvtMt(false),
-        AutoTune(false), AutoTunePro(false), Service(false), SxsBoost(false),
+        AutoTune(false), AutoTunePro(false), Service(false), SxsBoost(false), ClearLearn(false),
     }
 
     class Item(val key: String, val group: Group, val page: Page, val tables: List<Int>)
+
+    /** 清除學習值（0x2009）在韌體上會改寫的表：D3NBO2_BL_Warm_CELL、D3NBO2_BL_Cold_CELL（整張填 0x80）。清完要重讀這兩張。 */
+    val CLEAR_LEARN_TABLES = listOf(79, 80)
 
     /** 沒連 ECU 時，用調校檔類型（MAP_Type）推機型 node；推不出來（四缸、RZR、MGU…）回 null。 */
     fun nodeOfMapType(mapType: String): Int? = when (mapType.trim()) {
@@ -72,6 +75,8 @@ object CalItems {
         add("CalItem_Launch", Group.Vehicle, Page.D1x4, 1150, 6, 11, 123)
         add("CalItem_PitLimit", Group.Vehicle, Page.D1x4, 1010, 7, 131)
         add("CalItem_TPSLearn", Group.Vehicle, Page.TpsLearn)
+        // 清除 ECU 學習值（XTune 放在設定頁）：只開放已在韌體上確認行為的機型（SXS 沒確認）。
+        if (mini(node) || superX(node)) add("CalItem_ClearLearn", Group.Vehicle, Page.ClearLearn, CLEAR_LEARN_TABLES[0], CLEAR_LEARN_TABLES[1])
         add("CalItem_ResButton", Group.Vehicle, Page.ResButton, 1046, 1047, 1049, 1050, 1051, 1052, 1053, 1054, 1056)
         add("CalItem_TSC", Group.Vehicle, Page.D1x5, 1067, 1127, 138, 1128, 136)
         if (superX(node) || mini(node)) {
@@ -152,6 +157,7 @@ object CalItems {
         "CalItem_SparkAngle" to arrayOf("Spark Angle", "點火角度", "点火角度", "点火角度"),
         "CalItem_SpeedGain" to arrayOf("Speed Gain", "車速調整", "车速调整", "車速調整"),
         "CalItem_TPSLearn" to arrayOf("TPS Lean", "TPS 學習", "TPS 学习", "TPS学習"),
+        "CalItem_ClearLearn" to arrayOf("Clear ECU learning", "清除 ECU 學習值", "清除 ECU 学习值", "ECU 学習値のクリア"),
         "CalItem_TSC" to arrayOf("Traction Control", "循跡設定", "循迹设置", "TSC 設定"),
         "CalItem_TSC_Plus" to arrayOf("TCS Plus", "循跡設定Plus", "循迹设置Plus", "TCS Plus"),
         "CalItem_TagAFR" to arrayOf("Target AFR", "目標空燃比", "目标空燃比", "目標エアフューエル比"),

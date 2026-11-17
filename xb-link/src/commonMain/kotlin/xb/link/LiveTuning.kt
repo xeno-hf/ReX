@@ -2,10 +2,15 @@ package xb.link
 
 import rx.protocol.SdoPort
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,6 +69,15 @@ class LiveTuning(
         val ok: Boolean get() = failed.isEmpty()
     }
 
+    /**
+     * [commandThenRead] 的結果：[sent]＝命令有交給連線（ECU 可能已經執行）；[command]＝命令的結果（null＝ECU 收下）；
+     * [read]＝重讀成功、已換進編輯器的表；[failed]＝重讀失敗的原因（這些表鎖著不能寫，[readTable] 成功才解開）。
+     */
+    class CommandRead(val sent: Boolean, val command: String?, val read: List<Int>, val failed: Map<Int, String>) {
+        val ok: Boolean get() = sent && command == null && failed.isEmpty()
+        companion object { fun notSent(reason: String) = CommandRead(false, reason, emptyList(), emptyMap()) }
+    }
+
     /** 所有內部狀態只在這個排程上改（一次一個協程）。 */
     private val serial = Dispatchers.Default.limitedParallelism(1)
 
@@ -97,14 +111,36 @@ class LiveTuning(
     /** 這個物件開的協程（計時、延遲複查）；[close] 一起收掉。 */
     private val jobs = ArrayList<Job>()
     private val sendLock = Mutex()
+    /**
+     * 送了會讓 ECU 自己改表的命令、還沒重讀確認的表（[commandThenRead]）：不能即時寫，
+     * 要重讀成功、換進編輯器（[readTable] 帶 apply）才解開。畫面的執行緒也會讀（[writable]），所以用 StateFlow。
+     */
+    private val _held = MutableStateFlow<Set<Int>>(emptySet())
+    /** 鎖著等重讀的表（見 [commandThenRead]）：編輯器也不該讓人改。 */
+    val held: StateFlow<Set<Int>> = _held
+    /**
+     * 每張表的世代：[commandThenRead] 鎖表時加一。畫面的執行緒複製編輯器內容時記下世代，
+     * 到了排程上世代變了就丟掉（清除之前複製的舊值不能在清除之後送出去）。
+     */
+    private val _epochs = MutableStateFlow<Map<Int, Long>>(emptyMap())
+    private fun epoch(absId: Int): Long = _epochs.value[absId] ?: 0L
+
+    /** 測試用停點（同模組的測試才設）：在畫面的執行緒上，檢查可寫之後、複製之後各叫一次。 */
+    internal var testSeam: ((String) -> Unit)? = null
 
     private fun spawn(block: suspend CoroutineScope.() -> Unit): Job? {
         if (_closed.value) return null
         return scope.launch(serial, block = block).also { j -> jobs.removeAll { it.isCompleted }; jobs += j }
     }
 
-    /** 這張表能即時寫：ECU 上讀得到、沒被拒絕、還沒關閉。 */
-    fun writable(absId: Int): Boolean = !_closed.value && absId in _ecu.value && _states.value[absId] !is TableState.Refused
+    private fun <T> spawnAsync(block: suspend CoroutineScope.() -> T): Deferred<T>? {
+        if (_closed.value) return null
+        return scope.async(serial, block = block).also { j -> jobs.removeAll { it.isCompleted }; jobs += j }
+    }
+
+    /** 這張表能即時寫：ECU 上讀得到、沒被拒絕、沒在等命令後的重讀、還沒關閉。 */
+    fun writable(absId: Int): Boolean =
+        !_closed.value && absId in _ecu.value && _states.value[absId] !is TableState.Refused && absId !in _held.value
 
     /** ECU 上這張表目前的值（最後一次確認的）。 */
     fun ecuRows(absId: Int): List<LongArray>? = _ecu.value[absId]?.map { it.copyOf() }
@@ -113,9 +149,13 @@ class LiveTuning(
 
     /** 編輯器改了 [absId]（改值、復原、整張複製都算）。在畫面的執行緒呼叫；停手後送出。 */
     fun onEdited(absId: Int) {
+        // 世代最先讀：之後才鎖表的清除一定會讓這份複本作廢
+        val e = epoch(absId)
         if (!writable(absId)) return
+        testSeam?.invoke("checked")
         val rows = copyRows(absId) ?: return
-        spawn { schedule(absId, rows) }
+        testSeam?.invoke("copied")
+        spawn { if (epoch(absId) == e) schedule(absId, rows) }
     }
 
     private fun schedule(absId: Int, rows: List<LongArray>) {
@@ -145,9 +185,14 @@ class LiveTuning(
      * 範圍檢查照舊：有格子超出定義檔範圍就整張不送。
      */
     suspend fun writeTable(absId: Int) {
+        val e = epoch(absId)
         if (!writable(absId)) return
+        testSeam?.invoke("checked")
         val rows = copyRows(absId) ?: return
+        testSeam?.invoke("copied")
         withContext(serial) {
+            // 複製之後表被鎖過（清除學習值）：這份是舊的，不送
+            if (epoch(absId) != e || !writable(absId)) return@withContext
             timers.remove(absId)?.cancel()
             desired[absId] = rows
             flush(absId, everyRowAsked = true)
@@ -157,8 +202,9 @@ class LiveTuning(
     /**
      * 全讀：從 ECU 重讀整張表，回傳讀到的列，ECU 現值以它為準。
      * 沒在等的改動會被呼叫端用讀到的值蓋掉（XTune 也是）。
+     * [apply]：在鎖裡把讀到的列換進編輯器；命令後鎖住的表（[commandThenRead]）只有 [apply] 成功才解開。
      */
-    suspend fun readTable(absId: Int): Result<List<LongArray>> = withContext(serial) {
+    suspend fun readTable(absId: Int, apply: (suspend (List<LongArray>) -> Unit)? = null): Result<List<LongArray>> = withContext(serial) {
         if (_closed.value) return@withContext Result.failure(IllegalStateException("live tuning closed"))
         sendLock.withLock {
             timers.remove(absId)?.cancel(); desired.remove(absId)
@@ -166,12 +212,97 @@ class LiveTuning(
             when (val r = EcuSync.readTable(link, def)) {
                 is TableRead.Ok -> {
                     if (absId in _ecu.value) setEcu(absId, r.rows)
+                    if (apply != null) apply(r.rows.map { it.copyOf() })
                     uncertain.remove(absId)
-                    if (_states.value[absId] !is TableState.Refused) setState(absId, null)
+                    if (apply != null) _held.update { it - absId }
+                    if (_states.value[absId] !is TableState.Refused && absId !in _held.value) setState(absId, null)
                     Result.success(r.rows.map { it.copyOf() })
                 }
                 is TableRead.Failed -> Result.failure(IllegalStateException(r.reason))
             }
+        }
+    }
+
+    /**
+     * 送一個會讓 ECU 自己改掉 [ids] 的命令（清除學習值），等 [settleMs] 再重讀 [ids]，每張讀到就用 [apply] 換進編輯器。
+     * 整段拿著寫入鎖：正在寫的表先寫完；[ids] 還沒送的改動丟掉；期間 [ids] 不能即時寫（畫面的改動不送），
+     * 別的表的寫入、整包寫入都等這段做完。工作開在這個物件自己的 scope 上，呼叫的頁面離開也會做完（[close] 才會中斷）。
+     * 命令沒回、回錯都照樣重讀（ECU 可能已經做了）。重讀失敗、或被 [close] 中斷：那幾張表標 [TableState.Failed]、
+     * 維持不能即時寫（整包寫入改用 ECU 現值，見 [ecuOverrides]），要 [readTable] 帶 apply 成功才解開。
+     * [ids] 每一張都要在 ECU 上讀得到，否則不送。
+     */
+    suspend fun commandThenRead(
+        ids: List<Int>, settleMs: Long, attempts: Int = 3, retryDelayMs: Long = 300,
+        command: suspend () -> String?, apply: suspend (Int, List<LongArray>) -> Unit,
+    ): CommandRead {
+        require(attempts >= 1 && retryDelayMs >= 0 && settleMs >= 0)
+        var sent = false
+        val done = ArrayList<Int>()
+        val op = spawnAsync {
+            val missing = ids.firstOrNull { tune.definition(it) == null || it !in _ecu.value }
+            if (missing != null) return@spawnAsync CommandRead.notSent("table $missing not read from the ECU")
+            // 先鎖住再等寫入鎖：等的期間畫面的改動不排程（等正在寫的表寫完時，改動不能留到清除之後才送）
+            _held.update { it + ids }
+            _epochs.update { m -> m + ids.associateWith { (m[it] ?: 0L) + 1 } }
+            for (id in ids) { timers.remove(id)?.cancel(); desired.remove(id) }
+            // 狀態一起改，畫面才會跟著停用編輯
+            val before = ids.associateWith { _states.value[it] }
+            for (id in ids) if (_states.value[id] !is TableState.Refused) setState(id, TableState.Writing)
+            var reached = false
+            try { sendLock.withLock {
+                reached = true
+                // 等鎖時排在前面的全讀可能已經解開：拿到鎖之後重新鎖住，再清一次那段期間排的改動
+                _held.update { it + ids }
+                _epochs.update { m -> m + ids.associateWith { (m[it] ?: 0L) + 1 } }
+                for (id in ids) { timers.remove(id)?.cancel(); desired.remove(id) }
+                val waiting = LinkedHashSet(ids)
+                uncertain += ids
+                for (id in ids) if (_states.value[id] !is TableState.Refused) setState(id, TableState.Writing)
+                try {
+                    sent = true
+                    val r = try { command() } catch (e: CancellationException) { throw e } catch (e: Exception) { e.message ?: e::class.simpleName ?: "error" }
+                    delay(settleMs)
+                    val failed = LinkedHashMap<Int, String>()
+                    for (id in ids) {
+                        val def = tune.definition(id)!!
+                        val why = try {
+                            when (val t = EcuSync.readTableRetrying(link, def, attempts, retryDelayMs, log)) {
+                                is TableRead.Ok -> {
+                                    setEcu(id, t.rows)
+                                    apply(id, t.rows.map { it.copyOf() })
+                                    uncertain.remove(id)
+                                    _held.update { it - id }
+                                    if (_states.value[id] !is TableState.Refused) setState(id, null)
+                                    done += id
+                                    null
+                                }
+                                is TableRead.Failed -> t.reason
+                            }
+                        } catch (e: CancellationException) { throw e } catch (e: Exception) { e.message ?: e::class.simpleName ?: "error" }
+                        waiting -= id
+                        if (why != null) {
+                            failed[id] = why
+                            log("${def.name}: not re-read after the ECU command: $why")
+                            if (_states.value[id] !is TableState.Refused) setState(id, TableState.Failed("not re-read after the ECU command: $why"))
+                        }
+                    }
+                    CommandRead(true, r, done.toList(), failed)
+                } finally {
+                    // 中斷（關閉、整包寫入前停止即時調校）：還沒重讀的表維持鎖住，標成沒確定
+                    for (id in waiting) if (_states.value[id] !is TableState.Refused) setState(id, TableState.Failed("not re-read after the ECU command"))
+                }
+            } } finally {
+                // 還沒拿到寫入鎖就被中斷：命令沒送，解開、狀態照舊（等的期間正在寫的表自己改過的狀態不動）
+                if (!reached) {
+                    _held.update { it - ids }
+                    for (id in ids) if (_states.value[id] == TableState.Writing) setState(id, before[id])
+                }
+            }
+        } ?: return CommandRead.notSent("live tuning closed")
+        return try { op.await() } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            // 工作被 [close] 中斷，呼叫的人還在：照實回報
+            CommandRead(sent, null, done.toList(), ids.filter { it !in done }.associateWith { "live tuning stopped before the re-read" })
         }
     }
 
@@ -419,7 +550,16 @@ class LiveTuning(
                 diff += back.indices.count { back[it] != rows[r][it] }
             }
             setEcu(absId, now)
-            if (diff == 0) { uncertain.remove(absId); setState(absId, if (_states.value[absId] is TableState.Refused) _states.value[absId] else null); Done.Restored }
+            if (diff == 0) {
+                uncertain.remove(absId)
+                // 命令後鎖著的表：ECU 上已是備份值，但編輯器還沒換，維持鎖住、標成要重讀（功能頁的重讀鈕才看得到）
+                setState(absId, when {
+                    _states.value[absId] is TableState.Refused -> _states.value[absId]
+                    absId in _held.value -> TableState.Failed("restored; re-read the table to edit it again")
+                    else -> null
+                })
+                Done.Restored
+            }
             else { setState(absId, TableState.Mismatch(diff)); Done.Failed("$diff cell(s) read back different") }
         } catch (e: SdoAbortException) {
             uncertain += absId
@@ -461,6 +601,7 @@ class LiveTuning(
     fun afterFullWrite(verified: Map<Int, List<LongArray>>) {
         _ecu.update { m -> m.mapValues { (id, rows) -> verified[id]?.map { it.copyOf() } ?: rows } }
         scope.launch(serial) { uncertain.removeAll(verified.keys) }
+        _held.update { it - verified.keys }
         _states.update { m -> m.filterValues { it is TableState.Refused } }
     }
 
