@@ -55,6 +55,10 @@ Live tuning needs a tuning pack (the table definitions): install XenoBrex on a c
 
 Requires Android 10+ / iOS 15+ (iPhone/iPad). Pairing with XenoBrex, and therefore live tuning, is Android-only for now. Monitoring and dashboard controls have been tested on a real vehicle only with the Android version and a Mini X; iOS vehicle connectivity, other models and **live-tuning writes on a real vehicle remain unverified**.
 
+## Guides
+
+[Install, connect, dashboard, recording, tuning](docs/guides/getting-started.en.md). Questions and ideas are welcome in [Discussions](https://github.com/xeno-hf/ReX/discussions).
+
 ## Build
 
 Requires JDK 17+ and the Android SDK (Platform 35).

@@ -55,6 +55,10 @@ ReX 內建各型號常用的監控通道，連線時會依 ECU 自動切換，�
 
 需求：Android 10+／iOS 15+（iPhone／iPad）。跟 XenoBrex 配對（以及需要它的即時調校）目前只有 Android 版。監控與儀表控制目前只有 Android 版搭配 Mini X 實車驗證過；iOS 實車連線、其他型號與**即時調校的實車寫入尚未驗證**。
 
+## 使用教學
+
+[安裝、連線、儀表、錄製、調校](docs/guides/getting-started.md)。問題與想法歡迎到 [Discussions](https://github.com/xeno-hf/ReX/discussions)。
+
 ## 建置
 
 需要 JDK 17+ 與 Android SDK（Platform 35）。
