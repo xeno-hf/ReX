@@ -39,8 +39,17 @@ class BuiltinPlatformTest {
         // An imported file without a default list: same names, shifted absids.
         val shifted = rx.defs.ChannelRegistry(null, s3.channels.map { it.copy(absid = it.absid + 1) })
         val all = Presets.allAbsids(shifted)
-        val expected = Presets.XTUNE_151.absids.mapNotNull { s3.values[it] }.map { it.absid + 1 }
+        val expected = Presets.XTUNE_151.absids.mapNotNull { s3.values[it] }.map { it.absid + 1 } + (1148 + 1)
         assertEquals(expected, all)
+    }
+
+    @Test fun fullTableAppendsSecondInjectorAfterXtuneChannels() {
+        for (k in listOf("S3", "X2")) {
+            val reg = BuiltinDefs.forKey(k)
+            val all = Presets.allAbsids(reg)
+            assertEquals(reg.defaults, all.dropLast(1), k)
+            assertEquals("Cyl1s_Comn_FuelPW", reg.values[all.last()]?.name, k)
+        }
     }
 
     private class Rig(val s: Session, val tx: MutableList<rx.protocol.Frame>)

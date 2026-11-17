@@ -91,8 +91,14 @@ object Presets {
         CORE + listOf(159, 160, 161, 162, 163, 164, 165, 171, 1398, 1432, 1433, 1434, 35),
     )
 
-    /** App 內建唯一的頻道組：全開（＝XTune 全餐表）。其他組由使用者從這裡面挑。 */
-    val ALL_CHANNELS = XTUNE_151.copy(title = "All", description = "All channels")
+    /**
+     * XTune 全餐表沒有、ReX 另外要的通道（依名稱對應各平台的 absid），接在全餐表後面，官方欄位順序不動。
+     * `Cyl1s_Comn_FuelPW`：第二支噴嘴的噴油時間，雙噴車才有值（issue #2）。
+     */
+    val EXTRA_NAMES = listOf("Cyl1s_Comn_FuelPW")
+
+    /** App 內建唯一的頻道組：全開（＝XTune 全餐表＋[EXTRA_NAMES]）。其他組由使用者從這裡面挑。 */
+    val ALL_CHANNELS = XTUNE_151.copy(title = "All", description = "All channels", absids = XTUNE_151.absids + 1148)
 
     val ALL = listOf(XTUNE_151, BATTERY, NBCL, EBOOST)
 
@@ -100,9 +106,13 @@ object Presets {
      * 「全部」在這份名錄的實際 absid：內建定義自帶各平台的清單；匯入的 XML 依名稱對到 S3 的全餐表
      * （不同平台同一 absid 可能是別的通道，不能直接沿用）。
      */
-    fun allAbsids(registry: ChannelRegistry): List<Int> = registry.defaults ?: run {
-        val s3 = rx.defs.BuiltinDefs.forKey("S3")
-        XTUNE_151.absids.mapNotNull { s3.values[it]?.name }.mapNotNull { registry.byName[it]?.takeIf { d -> !d.isBit }?.absid }
+    fun allAbsids(registry: ChannelRegistry): List<Int> {
+        val base = registry.defaults ?: run {
+            val s3 = rx.defs.BuiltinDefs.forKey("S3")
+            XTUNE_151.absids.mapNotNull { s3.values[it]?.name }.mapNotNull { registry.byName[it]?.takeIf { d -> !d.isBit }?.absid }
+        }
+        val extra = EXTRA_NAMES.mapNotNull { registry.byName[it]?.takeIf { d -> !d.isBit }?.absid }.filter { it !in base }
+        return base + extra
     }
 
     fun table(p: Preset, registry: ChannelRegistry): ChannelTable =

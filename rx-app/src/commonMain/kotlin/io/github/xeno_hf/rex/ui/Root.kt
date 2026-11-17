@@ -527,7 +527,7 @@ private fun ConnectDialog(onDismiss: () -> Unit) {
                     }
                 }
                 TextButton(onClick = {
-                    editing = Presets.Preset("u" + rx.session.WallClock.nowMs(), Strings.get(R.string.preset_default_name, custom.size + 1), "", Presets.ALL_CHANNELS.absids)
+                    editing = Presets.Preset("u" + rx.session.WallClock.nowMs(), Strings.get(R.string.preset_default_name, custom.size + 1), "", repo.registry.value?.let { Presets.allAbsids(it) } ?: Presets.ALL_CHANNELS.absids)
                 }) { Text(stringResource(R.string.conn_new_group)) }
                 Text(stringResource(R.string.conn_fewer_faster), color = RxColors.muted, fontSize = 11.sp)
                 Spacer(Modifier.height(8.dp))
@@ -617,7 +617,8 @@ private fun PresetEditor(p: Presets.Preset, isNew: Boolean, onSave: (Presets.Pre
     val reg = repo.registry.collectAsState().value ?: return
     var name by remember { mutableStateOf(p.title) }
     var q by remember { mutableStateOf("") }
-    val pool = remember(reg) { Presets.ALL_CHANNELS.absids.distinct().mapNotNull { reg.values[it] }.filter { !it.isBitContainer }.sortedBy { it.label.lowercase() } }
+    val all = remember(reg) { Presets.allAbsids(reg) }
+    val pool = remember(reg) { all.distinct().mapNotNull { reg.values[it] }.filter { !it.isBitContainer }.sortedBy { it.label.lowercase() } }
     var sel by remember { mutableStateOf(p.absids.toSet().intersect(pool.map { it.absid }.toSet())) }
     val shown = pool.filter { q.isBlank() || it.label.contains(q, true) || it.name.contains(q, true) }
     AlertDialog(
@@ -648,7 +649,7 @@ private fun PresetEditor(p: Presets.Preset, isNew: Boolean, onSave: (Presets.Pre
         },
         confirmButton = {
             Button(enabled = sel.isNotEmpty() && name.isNotBlank(), onClick = {
-                onSave(p.copy(title = name.trim(), absids = Presets.ALL_CHANNELS.absids.filter { it in sel || reg.values[it]?.isBitContainer == true }))
+                onSave(p.copy(title = name.trim(), absids = all.filter { it in sel || reg.values[it]?.isBitContainer == true }))
             }) { Text(stringResource(R.string.save)) }
         },
         dismissButton = {
