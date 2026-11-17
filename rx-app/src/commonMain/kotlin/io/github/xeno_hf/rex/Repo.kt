@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 import rx.defs.BuiltinDefs
@@ -213,7 +214,14 @@ class Repo(val platform: Platform) {
     /** 同步到電腦：連線時把資料即時轉送到 [uplinkAddr]（host:port）。 */
     var uplinkEnabled: Boolean
         get() = prefs.getBoolean("uplink", false)
-        set(v) = prefs.putBoolean("uplink", v)
+        set(v) {
+            // 連線中切換要馬上生效：開就開始送、關就停
+            synchronized(uplinkLock) {
+                if (v == uplinkEnabled) return
+                prefs.putBoolean("uplink", v)
+                replaceUplinkLocked(session)
+            }
+        }
     var uplinkAddr: String
         get() = prefs.getString("uplinkAddr", "")!!
         set(v) = prefs.putString("uplinkAddr", v.trim())
@@ -366,9 +374,7 @@ class Repo(val platform: Platform) {
         currentLayout = DecodedLayout(reg, table)
         history.clear(); malfSeen.value = emptyMap(); live.value = null
         log("Using built-in definitions for ${p?.label ?: want}: ${reg.channels.size} channels")
-        s()?.let { session ->
-            uplink.value?.let { u -> session.removeListener(u); uplink.value = null; scope.launch { u.close() }; startUplink(session, t, table) }
-        }
+        s()?.let { synchronized(uplinkLock) { if (uplink.value != null) replaceUplinkLocked(it, t, table) } }
         return table
     }
 
@@ -450,12 +456,12 @@ class Repo(val platform: Platform) {
         override fun onEvent(tNanos: Long, text: String) = log(text)
 
         override fun onTableChanged(table: rx.protocol.ChannelTable) {
+            // Session 先把 table 換成這個物件再通知：不是目前連線的表＝舊連線遲來的通知，不理
+            if (session?.table !== table) return
             val reg = registry.value ?: return
             currentLayout = DecodedLayout(reg, table)
             history.clear(); live.value = null
-            val s = session ?: return
-            val t = target.value ?: return
-            uplink.value?.let { u -> s.removeListener(u); uplink.value = null; scope.launch { u.close() }; startUplink(s, t, table) }
+            synchronized(uplinkLock) { if (uplink.value != null) replaceUplinkLocked(session, table = table) }
         }
     }
 
@@ -494,7 +500,7 @@ class Repo(val platform: Platform) {
 
     fun connect(t: Target) {
         val reg = registry.value ?: return
-        scope.launch {
+        scope.launch { lifecycle.withLock {
             disconnectInternal()
             val preset = currentPreset()
             val table = tableFor(preset, reg)
@@ -519,9 +525,11 @@ class Repo(val platform: Platform) {
                 dashSwitches = if (t is Target.Ecu) ECU_SWITCH_FUNS else emptySet())
             created = s
             s.addListener(listener)
-            if (uplinkEnabled) startUplink(s, t, table)
-            session = s
-            target.value = t
+            synchronized(uplinkLock) {
+                session = s
+                target.value = t
+                if (uplinkEnabled) startUplink(s, t, table)
+            }
             loginJob = scope.launch { s.loggedIn.collect { ecuLoggedIn.value = it } }
             switchJob = scope.launch { s.dashSwitch.collect { dashSwitch.value = it } }
             stateJob = scope.launch {
@@ -536,10 +544,13 @@ class Repo(val platform: Platform) {
             s.start()
             if (gpsEnabled.value) gps.start()
             platform.onSessionActive(true)
-        }
+        } }
     }
 
-    fun disconnect() = scope.launch { disconnectInternal(); platform.onSessionActive(false) }
+    fun disconnect() = scope.launch { lifecycle.withLock { disconnectInternal(); platform.onSessionActive(false) } }
+
+    /** 連線與斷線整段一次一個：舊的拆完（含等同步關掉）才裝新的，拆到一半不會去清到新連線的狀態。 */
+    private val lifecycle = kotlinx.coroutines.sync.Mutex()
 
     /** 收不到資料（熄火、離車）超過 [idleStopMinutes] 分鐘就自己斷線，不在背景一直重連。 */
     private suspend fun autoStopWhenIdle(s: Session) {
@@ -563,10 +574,16 @@ class Repo(val platform: Platform) {
         resumeRecording = false
         stopRecording()
         platform.releaseEcuAp()
-        uplink.value?.let { u -> session?.removeListener(u); u.close() }
-        uplink.value = null
-        session?.let { it.stop(); it.removeListener(listener) }
-        session = null
+        // 先在鎖內把連線和同步整個拆下來，之後的開關／換表就看不到這個連線、不會再開新的同步
+        val (s, u) = synchronized(uplinkLock) {
+            val pair = session to uplink.value
+            pair.second?.let { pair.first?.removeListener(it) }
+            uplink.value = null
+            session = null
+            pair
+        }
+        u?.close()
+        s?.let { it.stop(); it.removeListener(listener) }
         gps.stop()
         stateJob?.cancel(); stateJob = null
         loginJob?.cancel(); loginJob = null; ecuLoggedIn.value = false
@@ -580,6 +597,16 @@ class Repo(val platform: Platform) {
 
     // ---------------- 分身鏡射 ----------------
     val uplink = MutableStateFlow<UplinkLink?>(null)
+
+    /** 開關、連線、斷線、換表都在這把鎖下改 session／uplink，避免互相蓋掉（例如關掉同步時剛好連上，又開了新的）。 */
+    private val uplinkLock = SynchronizedObject()
+
+    /** 拿掉並關掉目前的同步；同步開著、而且 [s] 仍是目前的連線才開新的。呼叫者要持有 [uplinkLock]。 */
+    private fun replaceUplinkLocked(s: Session?, t: Target? = target.value, table: rx.protocol.ChannelTable? = s?.table) {
+        if (s == null || s !== session) return
+        uplink.value?.let { u -> s.removeListener(u); uplink.value = null; scope.launch { u.close() } }
+        if (uplinkEnabled && t != null && table != null) startUplink(s, t, table)
+    }
 
     private fun startUplink(s: Session, t: Target, table: rx.protocol.ChannelTable) {
         // 只走配對過的加密連線；沒配對（或讀不到配對資料）就不送，不退回舊的明文串流
@@ -647,12 +674,7 @@ class Repo(val platform: Platform) {
     }
 
     /** 連線中的同步換成新的設定（配對、取消配對後）。 */
-    private fun restartUplink() {
-        val s = session ?: return
-        val t = target.value ?: return
-        uplink.value?.let { u -> s.removeListener(u); uplink.value = null; scope.launch { u.close() } }
-        if (uplinkEnabled) startUplink(s, t, s.table)
-    }
+    private fun restartUplink() = synchronized(uplinkLock) { replaceUplinkLocked(session) }
 
     sealed interface SyncStatus {
         object Idle : SyncStatus
