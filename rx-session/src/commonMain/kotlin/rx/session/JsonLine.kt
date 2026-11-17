@@ -8,11 +8,12 @@ package rx.session
 internal object JsonLine {
     data class Num(val text: String)
 
-    fun parseObject(line: String): Map<String, Any?>? {
-        val p = P(line)
+    /** [nested]＝巢狀物件也回 Map（預設回 Unit）。 */
+    fun parseObject(line: String, nested: Boolean = false): Map<String, Any?>? {
+        val p = P(line, nested)
         return try {
             p.ws()
-            val m = p.obj(top = true)
+            val m = p.obj(top = true, depth = 0)
             p.ws()
             if (p.i != line.length) null else m
         } catch (_: Bad) { null }
@@ -20,38 +21,43 @@ internal object JsonLine {
 
     private class Bad : Exception()
 
-    private class P(val s: String) {
+    /** 巢狀最多幾層（錄製的事件只有一兩層）。 */
+    private const val MAX_DEPTH = 32
+
+    private class P(val s: String, val nested: Boolean) {
         var i = 0
         fun bad(): Nothing = throw Bad()
         fun peek(): Char = if (i < s.length) s[i] else bad()
         fun ws() { while (i < s.length && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n')) i++ }
         fun eat(c: Char) { if (peek() != c) bad(); i++ }
 
-        fun obj(top: Boolean): Map<String, Any?> {
+        fun obj(top: Boolean, depth: Int): Map<String, Any?> {
+            if (depth > MAX_DEPTH) bad()
             eat('{'); ws()
             val m = LinkedHashMap<String, Any?>()
             if (peek() == '}') { i++; return m }
             while (true) {
                 ws(); val k = str(); ws(); eat(':'); ws()
-                val v = value()
-                if (top) m[k] = v
+                val v = value(depth)
+                if (top || nested) m[k] = v
                 ws()
                 when (peek()) { ',' -> i++; '}' -> { i++; return m }; else -> bad() }
             }
         }
 
-        fun arr() {
+        fun arr(depth: Int) {
+            if (depth > MAX_DEPTH) bad()
             eat('['); ws()
             if (peek() == ']') { i++; return }
             while (true) {
-                ws(); value(); ws()
+                ws(); value(depth); ws()
                 when (peek()) { ',' -> i++; ']' -> { i++; return }; else -> bad() }
             }
         }
 
-        fun value(): Any? = when (peek()) {
-            '{' -> { obj(top = false); Unit }
-            '[' -> { arr(); Unit }
+        fun value(depth: Int): Any? = when (peek()) {
+            '{' -> if (nested) obj(top = false, depth = depth + 1) else { obj(top = false, depth = depth + 1); Unit }
+            '[' -> { arr(depth + 1); Unit }
             '"' -> str()
             't' -> { lit("true"); true }
             'f' -> { lit("false"); false }

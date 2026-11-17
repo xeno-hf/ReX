@@ -1,6 +1,7 @@
 package io.github.xeno_hf.rex.ui
 
 import io.github.xeno_hf.rex.res.R
+import io.github.xeno_hf.rex.Repo
 import rx.protocol.hex
 
 import androidx.compose.foundation.layout.Column
@@ -235,16 +236,7 @@ private fun SettingsPane() {
                 FilterChip(selected = idle == m, onClick = { idle = m; repo.idleStopMinutes = m }, label = { Text(l) }, modifier = Modifier.padding(end = 6.dp))
             }
         }
-        if (repo.platform.supportsUplink) {
-            SectionTitle(stringResource(R.string.set_sync))
-            var link by remember { mutableStateOf(repo.uplinkEnabled) }
-            var addr by remember { mutableStateOf(repo.uplinkAddr) }
-            SwitchRow(stringResource(R.string.set_sync_enable), link) { link = it; repo.uplinkEnabled = it }
-            if (link) OutlinedTextField(
-                addr, { addr = it; repo.uplinkAddr = it }, label = { Text(stringResource(R.string.set_sync_addr)) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        if (repo.platform.supportsUplink) SyncSettings()
         SectionTitle(stringResource(R.string.set_vehicle))
         val builtin by repo.builtinKey.collectAsState()
         val importErr by repo.registryError.collectAsState()
@@ -270,4 +262,69 @@ private fun SettingsPane() {
         Text(stringResource(R.string.set_about_readonly), color = RxColors.muted, fontSize = 12.sp)
         Spacer(Modifier.height(16.dp))
     }
+}
+
+/** 「同步到電腦」：跟 XenoBrex 配對、連線時送即時資料、同步錄製與油圖定義。 */
+@Composable
+private fun SyncSettings() {
+    val repo = LocalRepo.current
+    val scope = rememberCoroutineScope()
+    SectionTitle(stringResource(R.string.set_sync))
+    var addr by remember { mutableStateOf(repo.uplinkAddr) }
+    OutlinedTextField(
+        addr, { addr = it; repo.uplinkAddr = it }, label = { Text(stringResource(R.string.set_sync_addr)) },
+        singleLine = true, modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(6.dp))
+    val pc by repo.syncComputer.collectAsState()
+    var pairErr by remember { mutableStateOf<String?>(null) }
+    var pairing by remember { mutableStateOf(false) }
+    val computer = pc
+    if (computer == null) {
+        Text(stringResource(R.string.sync_unpaired), color = RxColors.muted, fontSize = 12.sp)
+        var code by remember { mutableStateOf("") }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 電腦顯示 XXXX-XXXX-XXXX-XXXX：連字號、空白可打可不打，也可以整段貼上
+            OutlinedTextField(code, { code = it.uppercase().take(rx.session.SyncCode.LENGTH + 8) }, label = { Text(stringResource(R.string.sync_code)) }, singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedButton(enabled = !pairing && rx.session.SyncCode.complete(code), onClick = {
+                scope.launch { pairing = true; pairErr = repo.pairWithComputer(rx.session.SyncCode.normalize(code)); pairing = false; if (pairErr == null) code = "" }
+            }) { Text(stringResource(if (pairing) R.string.sync_pairing else R.string.sync_pair)) }
+        }
+        pairErr?.let { Text(syncReason(it), color = RxColors.danger, fontSize = 12.sp) }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.sync_paired, computer.name), color = RxColors.accent, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            OutlinedButton(onClick = { repo.unpairComputer() }) { Text(stringResource(R.string.sync_unpair)) }
+        }
+    }
+    var link by remember { mutableStateOf(repo.uplinkEnabled) }
+    SwitchRow(stringResource(R.string.set_sync_enable), link) { link = it; repo.uplinkEnabled = it }
+    if (computer != null) {
+        val st by repo.syncStatus.collectAsState()
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(enabled = st !is Repo.SyncStatus.Running, onClick = { repo.syncNow() }) { Text(stringResource(R.string.sync_now)) }
+            Text(
+                when (val x = st) {
+                    is Repo.SyncStatus.Running -> stringResource(R.string.sync_running, x.done, x.total)
+                    is Repo.SyncStatus.Done -> stringResource(R.string.sync_done, x.outcome.uploaded.size, x.outcome.alreadyThere) +
+                        (if (x.outcome.failed.isNotEmpty()) "  " + stringResource(R.string.sync_failed_n, x.outcome.failed.size) else "") +
+                        (if (x.defsSaved) "  " + stringResource(R.string.sync_defs_ok) else x.outcome.defsError?.let { "  " + stringResource(R.string.sync_defs_none, it) } ?: "") +
+                        (if (x.tunePackSaved) "  " + stringResource(R.string.sync_tunepack_ok) else x.outcome.tunePackError?.let { "  " + stringResource(R.string.sync_tunepack_none, it) } ?: "")
+                    is Repo.SyncStatus.Failed -> syncReason(x.reason)
+                    else -> stringResource(R.string.sync_hint)
+                },
+                color = if (st is Repo.SyncStatus.Failed) RxColors.danger else RxColors.muted, fontSize = 12.sp, modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun syncReason(reason: String): String = when (reason) {
+    "no-pairing" -> stringResource(R.string.sync_err_no_pairing)
+    "bad-code" -> stringResource(R.string.sync_err_bad_code)
+    "unknown-device", "auth" -> stringResource(R.string.sync_err_forgotten)
+    "different-computer" -> stringResource(R.string.sync_err_other_pc)
+    else -> stringResource(R.string.sync_err_other, reason)
 }

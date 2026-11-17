@@ -267,8 +267,29 @@ class AndroidPlatform(private val app: Context) : Platform {
         }, ecuApRoute = { Net.wifiNetwork(app)?.socketFactory ?: SocketFactory.getDefault() }, subnets = { Net.subnets(app) })
     }
 
-    override fun startUplink(host: String, port: Int, hello: () -> String): UplinkLink =
-        Uplink(host, port, hello, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO), nanoTime = ::elapsedNanos)
+    override fun startUplink(host: String, port: Int, hello: () -> String, computer: SyncComputer?, me: SyncMe?): UplinkLink =
+        Uplink(host, port, hello, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO), nanoTime = ::elapsedNanos,
+            secure = if (computer != null && me != null) syncClient(host, port, me).liveHandshake(computer.peer()) else null)
+
+    private fun syncClient(host: String, port: Int, me: SyncMe) = rx.session.sync.SyncClient(host, port, rx.session.sync.SyncWire.Identity(me.id, me.name))
+    private fun SyncComputer.peer() = rx.session.sync.SyncWire.Peer(id, name, token, 0)
+
+    override suspend fun syncPair(host: String, port: Int, me: SyncMe, code: String): SyncComputer = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val p = try { syncClient(host, port, me).pair(code) } catch (e: rx.session.sync.SyncWire.SyncRefused) { throw SyncRefusedException(e.reason) }
+        SyncComputer(p.id, p.name, p.token)
+    }
+
+    override suspend fun syncNow(
+        host: String, port: Int, me: SyncMe, computer: SyncComputer,
+        rides: List<String>, pack: (String) -> Path?, defsRequest: Map<String, String>?,
+        tunePackRequest: Map<String, String>?,
+        progress: (Int, Int) -> Unit,
+    ): SyncOutcome = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val r = try {
+            syncClient(host, port, me).sync(computer.peer(), rides, { n -> pack(n)?.let { File(it.toString()) } }, defsRequest, tunePackRequest) { done, total, _ -> progress(done, total) }
+        } catch (e: rx.session.sync.SyncWire.SyncRefused) { throw SyncRefusedException(e.reason) }
+        SyncOutcome(r.uploaded, r.alreadyThere, r.failed, r.defs?.toString(Charsets.UTF_8), r.defsError, r.tunePack, r.tunePackError)
+    }
 
     override fun share(path: Path, mime: String, title: String) {
         val f = File(path.toString())

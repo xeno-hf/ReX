@@ -20,8 +20,8 @@ import kotlin.test.assertTrue
 
 class DiscoveryTest {
 
-    /** 在 127.0.0.1 隨機埠開一顆離線重播（真的 TCP，行為同 offline playback）。 */
-    private class FakeEcu : AutoCloseable {
+    /** 在 127.0.0.1 隨機埠開一個腳本化的測試傳輸（真的 TCP；回應由共用的測試端提供）。 */
+    private class ScriptedTransport : AutoCloseable {
         val server = ServerSocket().apply { bind(InetSocketAddress("127.0.0.1", 0)) }
         val port get() = server.localPort
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -69,7 +69,7 @@ class DiscoveryTest {
 
     @Test
     fun probeAcceptsEcuAndRejectsOtherServers() = runBlocking {
-        FakeEcu().use { ecu ->
+        ScriptedTransport().use { ecu ->
             val p = Discovery.probe("127.0.0.1", ecu.port)
             assertNotNull(p); assertTrue(p.heartbeat, "要看到 0x701/0x70A 心跳")
         }
@@ -84,7 +84,7 @@ class DiscoveryTest {
 
     @Test
     fun finderSweepsSubnetAndFindsOnlyTheEcu() = runBlocking {
-        FakeEcu().use { ecu ->
+        ScriptedTransport().use { ecu ->
             val events = ArrayList<EcuFinder.Event>()
             // 127.0.0.1 有 ECU；127.0.0.2..5 都是 loopback 但沒人聽這個埠（ServerSocket 綁死 127.0.0.1）
             val finder = EcuFinder(subnets = { listOf(Discovery.Subnet("lo", "127.0.0", hosts = 1..5)) }, port = ecu.port, udpEnabled = false)
@@ -100,7 +100,7 @@ class DiscoveryTest {
 
     @Test
     fun finderStopsEarlyOnKnownHost() = runBlocking {
-        FakeEcu().use { ecu ->
+        ScriptedTransport().use { ecu ->
             var swept = false
             val finder = EcuFinder(subnets = { swept = true; emptyList() }, port = ecu.port, udpEnabled = false)
             val found = finder.find(known = listOf(EcuFinder.KnownHost("127.0.0.1")))
@@ -111,7 +111,7 @@ class DiscoveryTest {
 
     @Test
     fun finderUsesUdpAnnouncement() = runBlocking {
-        FakeEcu().use { ecu ->
+        ScriptedTransport().use { ecu ->
             val udpPort = DatagramSocket(0).use { it.localPort }
             val finder = EcuFinder(subnets = { emptyList() }, port = ecu.port, udpPort = udpPort)
             val sender = thread {

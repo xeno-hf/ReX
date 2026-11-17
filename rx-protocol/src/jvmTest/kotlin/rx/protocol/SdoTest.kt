@@ -20,7 +20,7 @@ class SdoTest {
 
     @Test
     fun xtuneCommandBytes() {
-        // c.b(v)<<5：小讀 0x40、區塊讀 0xA4（blksize 0x7F）
+        // CiA 301 命令字（b0 的高 3 位）：小讀 0x40、區塊讀 0xA4（blksize 0x7F）
         val up = SdoUpload(0x601, 0x1008, 0)
         assertEquals(listOf(0xA4, 0x08, 0x10, 0x00, 0x7F, 0, 0, 0), up.start().data.map { it.toInt() and 0xFF })
         assertEquals(0x40, SdoUpload(0x601, 0x1008, 0, block = false).start().u8(0))

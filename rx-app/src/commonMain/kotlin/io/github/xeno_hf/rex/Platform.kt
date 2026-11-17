@@ -65,8 +65,22 @@ interface Platform {
     fun onSessionActive(active: Boolean)
     fun keepScreenOn(on: Boolean)
 
-    /** 「同步到電腦」（JVM 才有實作）。 */
-    fun startUplink(host: String, port: Int, hello: () -> String): UplinkLink? = null
+    /** 「同步到電腦」（JVM 才有實作）。[computer] 不是 null＝跟 XB 配對過，走驗證＋加密的連線。 */
+    fun startUplink(host: String, port: Int, hello: () -> String, computer: SyncComputer? = null, me: SyncMe? = null): UplinkLink? = null
+
+    /** 用 XB 顯示的配對碼配對（阻塞在 IO 上；JVM 才有）。 */
+    suspend fun syncPair(host: String, port: Int, me: SyncMe, code: String): SyncComputer = error("not supported")
+
+    /**
+     * 跟 XB 同步一次：XB 還沒有的錄製用 [pack] 打包成 .xbl 傳上去（回 null＝這筆打包失敗），順便要油圖定義包。
+     * [progress]（已傳筆數、要傳的筆數）。
+     */
+    suspend fun syncNow(
+        host: String, port: Int, me: SyncMe, computer: SyncComputer,
+        rides: List<String>, pack: (String) -> Path?, defsRequest: Map<String, String>?,
+        tunePackRequest: Map<String, String>?,
+        progress: (Int, Int) -> Unit,
+    ): SyncOutcome = error("not supported")
 
     /** 分享檔案（Android 分享選單／iOS 分享面板）。 */
     fun share(path: Path, mime: String, title: String)
@@ -116,3 +130,19 @@ interface PhoneGps {
         const val FRESH_NANOS = 3_000_000_000L
     }
 }
+
+/** 這支手機在同步裡的身分（id 第一次用時亂數產生）。 */
+class SyncMe(val id: String, val name: String)
+
+/** 配對過的電腦（XB）。[token] 是秘密，存在 [SecretStore]。 */
+class SyncComputer(val id: String, val name: String, val token: ByteArray)
+
+/** 一次同步的結果。 */
+class SyncOutcome(
+    val uploaded: List<String>, val alreadyThere: Int, val failed: Map<String, String>, val defs: String?, val defsError: String?,
+    /** 調校包（ZIP，即時調校用）；沒要或要不到是 null，原因在 [tunePackError]。 */
+    val tunePack: ByteArray? = null, val tunePackError: String? = null,
+)
+
+/** 同步被 XB 拒絕的原因（no-pairing、bad-code、unknown-device、auth、different-computer…）。 */
+class SyncRefusedException(val reason: String) : Exception(reason)

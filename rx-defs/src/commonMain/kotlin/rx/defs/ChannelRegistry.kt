@@ -4,7 +4,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 單一即時通道定義。
+ * 單一即時通道定義（ControlFile `<Var>` 的 `<Vinf>`）。
  *
  * Vinf 欄位：[0]absid [1]cellSize [2]scale 除數 [3]offset 減項 [4]max [5]min
  * [6]type(Para/Byte/BitN) [7]unit [8]stage 或分類 [9]decimals [13]顯示別名（例 TPS_Percent→"TPS%"）
@@ -24,10 +24,10 @@ data class ChannelDef(
     val decimals: Int?,
     /** c_version → 是否啟用（韌體版本相依）。 */
     val versions: Map<Int, Boolean>,
-    /** Vinf[13]，XTune ``；儀表格標題優先用它。 */
+    /** Vinf[13]；儀表格標題優先用它。 */
     val alias: String? = null,
 ) {
-    /** 儀表上顯示的名字（XTune Gauge_Text/Gauge_Bar 同規則：有別名用別名）。 */
+    /** 儀表上顯示的名字：有別名就用別名。 */
     val label: String get() = alias ?: name
 
     val bitIndex: Int? = BIT_RE.matchEntire(type)?.groupValues?.get(1)?.toInt()

@@ -1,6 +1,8 @@
 package rx.session
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -25,6 +27,9 @@ import rx.protocol.Rpc
 import rx.protocol.RpcReply
 import rx.protocol.RxRaw
 import rx.protocol.Sdo
+import rx.protocol.SdoAbortException
+import rx.protocol.SdoDownload
+import rx.protocol.SdoPort
 import rx.protocol.SdoUpload
 import rx.protocol.IOException
 import rx.protocol.hex
@@ -47,6 +52,8 @@ interface SessionListener {
     fun onFrame(tNanos: Long, dir: Int, frame: Frame) {}
     fun onRound(tNanos: Long, raw: LongArray) {}
     fun onEvent(tNanos: Long, text: String) {}
+    /** 串流中換了頻道表（[Session.requestTable]）：之後的 [onRound] 是新表的欄位。在新表寫進 ECU 之前呼叫。 */
+    fun onTableChanged(table: ChannelTable) {}
 }
 
 /**
@@ -80,9 +87,40 @@ class Session(
      * 即時通道不一定反映開關：實車 TC 開著、靜止時 TCStatus.TCEnable 仍是 0。
      */
     private val dashSwitches: Set<DashFn> = emptySet(),
-) {
+) : SdoPort {
     /** 目前的頻道表；[tableFor] 可能在連線判別平台後換掉。 */
     @Volatile var table: ChannelTable = table; private set
+
+    @Volatile private var pendingTable: ChannelTable? = null
+
+    /**
+     * 串流中換頻道表（下一個監看周期生效：先 [SessionListener.onTableChanged]，再重寫頻道表、重新武裝）。
+     * 沒連線時直接換，下次武裝就用它。
+     */
+    fun requestTable(next: ChannelTable) = kotlinx.atomicfu.locks.synchronized(tableLock) { requestLocked(next) }
+
+    private fun requestLocked(next: ChannelTable) {
+        if (transport == null) { table = next; return }
+        pendingTable = next
+    }
+
+    /** [pendingTable]、[table] 的請求與生效在同一把鎖下：監看周期取走請求的同時又來一個請求，不會被蓋掉。 */
+    private val tableLock = kotlinx.atomicfu.locks.SynchronizedObject()
+
+    /** 接下來要用的頻道表：還沒生效的請求，沒有就是目前的。 */
+    val requestedTable: ChannelTable get() = kotlinx.atomicfu.locks.synchronized(tableLock) { pendingTable ?: table }
+
+    /**
+     * 在 [requestedTable] 後面加上 [extra] 裡還沒有的通道（放不下的略過）並請求換表；回傳實際加進去的。
+     * 兩次請求在同一個監看周期之前連著來，第二次會接在第一次後面，不會把第一次蓋掉。
+     */
+    fun requestMoreChannels(extra: List<ChannelTable.Entry>): List<ChannelTable.Entry> = kotlinx.atomicfu.locks.synchronized(tableLock) {
+        val base = pendingTable ?: table
+        val have = base.entries.map { it.absid }.toHashSet()
+        val add = extra.filter { have.add(it.absid) }.take((ChannelTable.MAX_ENTRIES - base.entries.size).coerceAtLeast(0))
+        if (add.isNotEmpty()) requestLocked(ChannelTable(base.entries + add))
+        add
+    }
 
     data class Timing(
         val stepMs: Long = 80,
@@ -98,6 +136,8 @@ class Session(
         val superviseTickMs: Long = 250,
         /** 登入後送 NMT Start（XTune 同序）。10-16 凌晨排查時曾關閉對照（非 ACK 失敗根因）。 */
         val sendNmtStart: Boolean = true,
+        /** 調校寫入每一步等 ECU 回應的時間（同 XB 的 EcuLink）。 */
+        val calWriteTimeoutMs: Long = 1500,
     )
 
     class Stats {
@@ -130,6 +170,8 @@ class Session(
     private fun adoptNode(n: Int) {
         if (n == node) { platformSeen = true; return }
         val refused = gate.refusals
+        // 換了 ECU 平台：調校授權不帶過去（新閘門預設關），要使用者重新開始調校
+        newGeneration("ECU platform changed")
         node = n; rpc = Rpc(n); gate = WriteGate(n, refused)
         _platform.value = EcuPlatform.ofNode(n)
         platformSeen = true
@@ -173,9 +215,11 @@ class Session(
     }
 
     suspend fun stop() {
+        revokeCalibration("session stopped")
         job?.cancelAndJoin()
         job = null
-        transport?.close(); transport = null
+        kotlinx.atomicfu.locks.synchronized(calLock) { transport }?.close()
+        kotlinx.atomicfu.locks.synchronized(calLock) { transport = null }
         streaming = false
         _loggedIn.value = false
         _dashSwitch.value = emptyMap()
@@ -205,6 +249,7 @@ class Session(
                 delay(timing.reconnectMs)
                 continue
             }
+            newGeneration(null)
             event("TCP connected")
             platformSeen = false
             _dashSwitch.value = emptyMap()
@@ -215,8 +260,9 @@ class Session(
             } catch (e: Exception) {
                 event("Connection lost: ${e.message ?: e::class.simpleName}")
             } finally {
+                // 斷線：調校授權立刻收回；重連後是不是同一台、ECU 有沒有重開都不知道，要重新讀回
+                newGeneration("connection lost", clearTransport = true)
                 t.close()
-                transport = null
                 streaming = false
             }
             stats.reconnects++
@@ -226,7 +272,7 @@ class Session(
     }
 
     private suspend fun CoroutineScope.runConnected(t: Transport) {
-        transport = t
+        kotlinx.atomicfu.locks.synchronized(calLock) { transport = t }
         replies = Channel(Channel.UNLIMITED)
         val now0 = nowMs()
         lastAnyRx = now0; lastFragment = 0; lastRound = 0; badLengthStreak = 0; streaming = false
@@ -262,8 +308,7 @@ class Session(
         if (!platformSeen) withTimeoutOrNull(1500) { while (!platformSeen) delay(50) }
         if (!platformSeen) event("No ECU heartbeat yet; assuming node 0x${node.hex(2)}")
         tableFor?.invoke(_platform.value)?.let { next ->
-            if (next.entries != table.entries) {
-                table = next
+            if (kotlinx.atomicfu.locks.synchronized(tableLock) { (next.entries != table.entries).also { if (it) table = next } }) {
                 reassembler = BroadcastReassembler(next.payloadLength) { r -> onRound(r) }
                 event("Channel table for ${_platform.value?.label ?: "node 0x${node.hex(2)}"}: ${next.entries.size} ch")
             }
@@ -272,6 +317,17 @@ class Session(
         try {
             while (true) {
                 delay(timing.superviseTickMs)
+                // 串流中換頻道表（功能專頁要的即時變數）：取走請求並生效在同一把鎖裡；換解碼、通知、重寫頻道表在鎖外
+                val changed = kotlinx.atomicfu.locks.synchronized(tableLock) {
+                    pendingTable?.also { pendingTable = null }?.takeIf { it.entries != table.entries }?.also { table = it }
+                }
+                changed?.let { next ->
+                    reassembler = BroadcastReassembler(next.payloadLength) { r -> onRound(r) }
+                    listeners.forEach { it.onTableChanged(next) }
+                    event("Channel table changed: ${next.entries.size} ch")
+                    stats.rearms++; lastArm = nowMs()
+                    armChecked(withTable = true)
+                }
                 val n = nowMs()
                 if (readerDone) throw IOException("ECU closed the connection")
                 if (n - lastAnyRx > timing.linkDeadMs) throw IOException("No frames for ${timing.linkDeadMs / 1000} s")
@@ -466,10 +522,10 @@ class Session(
     }
 
     /** 送一個已過閘門的 expedited download，等 WriteAck(0x60) 或 Abort(0x80)。須在 rpcLock 內呼叫。 */
-    private suspend fun sendWriteLocked(f: Frame): WriteResult {
+    private suspend fun sendWriteLocked(f: Frame, op: CalOp? = null): WriteResult {
         val addr = f.u8(1) or (f.u8(2) shl 8); val sub = f.u8(3)
         drainReplies()
-        send(f)
+        if (op != null) sendCal(f, op) else send(f)
         val reply = awaitReply(timing.ackTimeoutMs) {
             when (val r = RpcReply.classify(it)) {
                 is RpcReply.WriteAck -> r.addr == addr && r.sub == sub
@@ -484,8 +540,177 @@ class Session(
         }
     }
 
-    /** SDO 讀被 ECU abort（帶原碼，讓上層分辨「需登入」與其他錯誤）。 */
-    class SdoAbortException(val abort: Sdo.Abort) : IOException(abort.toString())
+    // ---------------- 即時調校 ----------------
+
+    /** 調校模式准寫的物件（定義包裡讀得到、已備份的表，0x3000＋表號）；null＝關閉。 */
+    @Volatile private var calibrationObjects: Set<Int>? = null
+    /** 調校模式下放行的命令幀（[WriteGate.commands]）。 */
+    @Volatile private var calibrationCommands: ((Frame) -> Boolean)? = null
+
+    /**
+     * 連線代號：每次 TCP 連上、斷線、換平台都會變。開調校模式時要帶開始讀回時的代號，
+     * 代號不同（中間斷過線或換了 ECU）就不開。
+     */
+    @Volatile var generation = 0L; private set
+
+    /**
+     * 開調校模式。開了以後 [write] 才會送，而且只送 [objects] 裡的物件（[WriteGate.calibration]）。
+     * [expectGeneration] 必須等於目前的 [generation]，而且要連著、登入成功；否則不開，回 false。
+     * 斷線、換平台、[stop] 都會自動關掉，不會帶到下一條連線。
+     */
+    fun enableCalibration(objects: Set<Int>, commands: ((Frame) -> Boolean)?, expectGeneration: Long): Boolean {
+        // 檢查與開啟要跟斷線／換平台的收回互斥：不然檢查完、開之前斷了線，授權會留到下一條連線
+        val ok = kotlinx.atomicfu.locks.synchronized(calLock) {
+            if (expectGeneration != generation || transport == null || !_loggedIn.value) false
+            else {
+                calibrationObjects = objects.toSet()
+                calibrationCommands = commands
+                gate.calibration = calibrationObjects
+                gate.commands = calibrationCommands
+                true
+            }
+        }
+        if (!ok) {
+            event("Calibration writes not enabled: the connection changed")
+            return false
+        }
+        event("Calibration writes on (${objects.size} objects)")
+        return true
+    }
+
+    /** 關調校模式。 */
+    fun disableCalibration() = revokeCalibration("turned off")
+
+    private val calLock = kotlinx.atomicfu.locks.SynchronizedObject()
+
+    /** 連線換了（連上、斷線、換平台）：代號加一，同時收回調校授權（兩件事一起做，[enableCalibration] 不會插在中間）。 */
+    private fun newGeneration(why: String?, clearTransport: Boolean = false) {
+        kotlinx.atomicfu.locks.synchronized(calLock) {
+            generation++
+            if (clearTransport) transport = null
+            if (why != null) revokeLocked(why)
+        }
+    }
+
+    /** 一筆調校操作開始時綁定的連線：之後每一幀只送到這條連線，代號變了就不送。 */
+    private class CalOp(val generation: Long, val transport: Transport)
+
+    /** 調校模式開著、連著、登入成功時，綁定目前的連線；否則回 null。 */
+    private fun captureCal(): CalOp? = kotlinx.atomicfu.locks.synchronized(calLock) {
+        val t = transport
+        if (t == null || calibrationObjects == null || !_loggedIn.value) null else CalOp(generation, t)
+    }
+
+    /**
+     * 調校操作的送出口：檢查授權、過閘門、選連線三件事跟斷線／換平台／收回互斥，只送到 [op] 綁定的那條連線。
+     * [cleanup]＝true（結束未完成的區塊寫入用）時不要求授權還開著，但連線換了就不送。
+     */
+    private suspend fun sendCal(f: Frame, op: CalOp, cleanup: Boolean = false) = sendLock.withLock {
+        kotlinx.atomicfu.locks.synchronized(calLock) {
+            if (generation != op.generation || transport !== op.transport) throw IOException("the connection changed")
+            if (!cleanup && calibrationObjects == null) throw WriteGate.Refused("calibration writes are off")
+            gate.check(f)
+        }
+        op.transport.send(f.encode())
+        stats.txFrames++
+        val ts = nanoTime()
+        listeners.forEach { it.onFrame(ts, RxRaw.DIR_TX, ShareExport.redactSecrets(f)) }
+    }
+
+    private fun revokeCalibration(why: String) = kotlinx.atomicfu.locks.synchronized(calLock) { revokeLocked(why) }
+
+    private fun revokeLocked(why: String) {
+        val was = calibrationObjects != null
+        calibrationObjects = null
+        calibrationCommands = null
+        gate.calibration = null
+        gate.commands = null
+        if (was) event("Calibration writes off ($why)")
+    }
+
+    val calibrationEnabled: Boolean get() = calibrationObjects != null
+
+    /** [SdoPort]：讀一個物件（同 [readObject]），失敗丟例外。 */
+    override suspend fun read(index: Int, sub: Int, block: Boolean): ByteArray =
+        readObject(index, sub, block).getOrThrow().first
+
+    /**
+     * [SdoPort]：寫一個物件（SDO download）。4 bytes 以內 expedited，其餘區塊寫入（[SdoDownload]，同 XTune、同 XB）。
+     * 只在調校模式、物件在准寫清單裡才送；每一幀照樣過 [WriteGate]。ECU abort 丟 [SdoAbortException]，逾時丟 [IOException]。
+     * 不自動讀回；要確認就再 [read]（xb-link 的 LiveTuning 會讀回）。
+     */
+    override suspend fun write(index: Int, sub: Int, data: ByteArray): Unit = rpcLock.withLock {
+        val op = captureCal() ?: throw if (transport == null) IOException("not connected") else WriteGate.Refused("calibration writes are off")
+        val allowed = calibrationObjects ?: throw WriteGate.Refused("calibration writes are off")
+        if (index !in allowed) throw WriteGate.Refused("object 0x${index.hex(4)} is not in the calibration set")
+        val gateNow = gate
+        val dl = SdoDownload(rpc.rpcId, index, sub, data)
+        drainReplies()
+        var finished = false
+        try {
+            sendCal(dl.start(), op)
+            while (true) {
+                val f = awaitReply(timing.calWriteTimeoutMs) { it.canId == CanId.rpcReply(node) }
+                if (f == null) {
+                    event("Write 0x${index.hex(4)}/$sub: no reply")
+                    throw IOException("write 0x${index.hex(4)}/$sub: no reply in ${timing.calWriteTimeoutMs} ms")
+                }
+                when (val st = dl.onReply(f)) {
+                    is SdoDownload.Step.Send -> { gateNow.blockAcknowledged(); st.frames.forEach { sendCal(it, op) } }
+                    SdoDownload.Step.Wait -> Unit
+                    SdoDownload.Step.Done -> { finished = true; event("Write 0x${index.hex(4)}/$sub: ${data.size} B"); return@withLock }
+                    is SdoDownload.Step.Failed -> {
+                        finished = st.abort != null // ECU 自己 abort 的：交易已經結束
+                        event("Write 0x${index.hex(4)}/$sub failed: ${st.reason}")
+                        throw st.abort?.let { SdoAbortException(it) } ?: IOException("write 0x${index.hex(4)}/$sub: ${st.reason}")
+                    }
+                }
+            }
+        } finally {
+            // 區塊寫入沒正常結束（逾時、取消、協定錯）：先送 abort 讓 ECU 結束這筆交易；送不出去就斷線，
+            // 重連後一切重來（調校授權也會收回）
+            // 結束幀送出後閘門已不算「進行中」，但 ECU 的最後確認還沒到也算沒結束
+            // 只動這筆交易綁定的那條連線，不碰換上來的新連線
+            if (!finished && !dl.expedited) withContext(NonCancellable) {
+                runCatching { sendCal(Sdo.abortFrame(rpc.rpcId, index, sub, 0x05040000L), op, cleanup = true) }
+                    .onFailure { event("Abort not sent after an unfinished block write; dropping the connection"); runCatching { op.transport.close() } }
+            }
+            gateNow.endBlock()
+        }
+    }
+
+    /**
+     * 功能專頁的命令：送一個組好的 SDO expedited 寫入幀（8 bytes，見 xb-tune CalCommands.sdoFrame），等 0x60 或 abort。
+     * 只在調校模式、幀在命令清單裡才送（[WriteGate]）。回 null＝ECU 收下，否則原因。不重送。
+     */
+    suspend fun calCommand(data: ByteArray): String? = rpcLock.withLock {
+        val op = captureCal() ?: return@withLock if (transport == null) "not connected" else "calibration writes are off"
+        val f = Frame(rpc.rpcId, data)
+        if (!gate.allows(f)) return@withLock "command not allowed"
+        when (val r = try { sendWriteLocked(f, op) } catch (e: WriteGate.Refused) { return@withLock "command not allowed" }) {
+            WriteResult.Ack -> null.also { event("Cal command ${data.hexLower()}: ACK") }
+            is WriteResult.Aborted -> r.abort.toString().also { event("Cal command ${data.hexLower()}: $it") }
+            is WriteResult.Error -> r.reason.also { event("Cal command ${data.hexLower()}: $it") }
+            is WriteResult.Unverified -> "not verified"
+        }
+    }
+
+    /**
+     * 功能專頁的廠商訊框（ECU 燈效 0x689、每缸 AFR 0x680 `62`）：過閘門後送出，[reply]≠null 就收 [count] 筆該 CAN id、
+     * 符合 [match] 的回應（收齊回傳；逾時丟例外）。
+     */
+    suspend fun calRaw(canId: Int, data: ByteArray, reply: Int?, count: Int, timeoutMs: Long, match: (ByteArray) -> Boolean): List<ByteArray> = rpcLock.withLock {
+        val op = captureCal() ?: throw if (transport == null) IOException("not connected") else WriteGate.Refused("calibration writes are off")
+        val f = Frame(canId, data)
+        if (!gate.allows(f)) throw WriteGate.Refused("frame 0x${canId.hex(3)} ${data.hexLower()} not allowed")
+        drainReplies()
+        sendCal(f, op)
+        if (reply == null) return@withLock emptyList()
+        val out = ArrayList<ByteArray>()
+        withTimeoutOrNull(timeoutMs) { while (out.size < count) replies.receive().let { if (it.canId == reply && match(it.data)) out += it.data } }
+        if (out.size < count) throw IOException("0x${canId.hex(3)}: ${out.size}/$count replies in $timeoutMs ms")
+        out
+    }
 
     private fun drainReplies(): List<Frame> = buildList { while (true) add(replies.tryReceive().getOrNull() ?: break) }
 

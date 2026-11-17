@@ -2,15 +2,11 @@ package rx.session
 
 import rx.defs.ChannelRegistry
 import rx.protocol.Frame
-import rx.protocol.FrameParser
-import java.io.DataInputStream
-import java.io.EOFException
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.Locale
-import java.util.zip.InflaterInputStream
 import kotlin.concurrent.thread
 
 /**
@@ -77,55 +73,30 @@ private fun serve(sock: Socket, registry: ChannelRegistry, root: File, mirrors: 
     var ended = false
     try {
         sock.soTimeout = 30_000
-        val din = DataInputStream(InflaterInputStream(sock.getInputStream()).buffered(1 shl 15))
-        val magic = ByteArray(Uplink.MAGIC.size).also(din::readFully)
-        require(magic.contentEquals(Uplink.MAGIC)) { "not RXLINK1" }
-        while (true) {
-            val type = try { din.readByte() } catch (_: EOFException) { break }
-            val len = Integer.reverseBytes(din.readInt())
-            require(len in 0..65536) { "Invalid sync message size" }
-            val p = ByteArray(len).also(din::readFully)
-            when (type) {
-                Uplink.T_FRAME -> require(len == 9 + Frame.FRAME_LEN)
-                Uplink.T_ROUND -> {
-                    require(len >= 10)
-                    val count = (p[8].toInt() and 255) or ((p[9].toInt() and 255) shl 8)
-                    require(count <= 4096 && len == 10 + count * 8)
-                }
-                Uplink.T_EVENT -> require(len >= 8)
-                Uplink.T_HELLO -> require(len in 1..32768)
-                Uplink.T_END -> require(len == 0)
-                else -> error("Unknown sync message")
-            }
-            when (type) {
-                Uplink.T_HELLO -> m = attach(String(p, Charsets.UTF_8), registry, root, mirrors).also {
+        ended = UplinkStream.read(sock.getInputStream(), object : UplinkStream.Handler {
+            override fun onHello(text: String) {
+                m = attach(text, registry, root, mirrors).also {
                     it.online = true
                     it.rec.onEvent(System.nanoTime(), "Sync connected: $peer")
+                    it.lastSeen = System.currentTimeMillis()
                 }
-                Uplink.T_FRAME -> {
-                    val mm = m ?: continue
-                    val (frames, st) = FrameParser.parseAll(p.copyOfRange(9, 9 + Frame.FRAME_LEN))
-                    if (frames.size == 1 && st.checksumErrors == 0L) mm.rec.onFrame(Uplink.getLong(p, 0), p[8].toInt(), frames[0])
-                }
-                Uplink.T_ROUND -> {
-                    val mm = m ?: continue
-                    val t = Uplink.getLong(p, 0)
-                    val n = (p[8].toInt() and 0xFF) or ((p[9].toInt() and 0xFF) shl 8)
-                    val raw = LongArray(n) { Uplink.getLong(p, 10 + 8 * it) }
-                    mm.rec.onRound(t, raw)
-                    onRound(mm, t, raw, root)
-                }
-                Uplink.T_EVENT -> {
-                    val mm = m ?: continue
-                    val text = String(p, 8, p.size - 8, Charsets.UTF_8)
-                    mm.rec.onEvent(Uplink.getLong(p, 0), text)
-                    synchronized(mm.events) { mm.events.addLast(text); while (mm.events.size > 30) mm.events.removeFirst() }
-                    println("[${mm.id}] $text")
-                }
-                Uplink.T_END -> { ended = true; break }
             }
-            m?.lastSeen = System.currentTimeMillis()
-        }
+            override fun onFrame(tNanos: Long, dir: Int, frame: Frame) {
+                val mm = m ?: return
+                mm.rec.onFrame(tNanos, dir, frame); mm.lastSeen = System.currentTimeMillis()
+            }
+            override fun onRound(tNanos: Long, raw: LongArray) {
+                val mm = m ?: return
+                mm.rec.onRound(tNanos, raw)
+                onRound(mm, tNanos, raw, root); mm.lastSeen = System.currentTimeMillis()
+            }
+            override fun onEvent(tNanos: Long, text: String) {
+                val mm = m ?: return
+                mm.rec.onEvent(tNanos, text)
+                synchronized(mm.events) { mm.events.addLast(text); while (mm.events.size > 30) mm.events.removeFirst() }
+                println("[${mm.id}] $text"); mm.lastSeen = System.currentTimeMillis()
+            }
+        })
     } catch (e: Exception) {
         println("[$peer] dropped: ${e.message ?: e.javaClass.simpleName}")
     } finally {

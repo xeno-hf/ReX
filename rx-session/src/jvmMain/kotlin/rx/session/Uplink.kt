@@ -40,6 +40,8 @@ class Uplink(
     private val scope: CoroutineScope,
     capacity: Int = 20_000,
     private val nanoTime: () -> Long = System::nanoTime,
+    /** 連上之後先做的握手（XB 同步：驗證＋加密），回傳之後要讀寫的兩條串流；null＝舊的明文 RXLINK1。 */
+    private val secure: ((Socket) -> Pair<java.io.InputStream, java.io.OutputStream>)? = null,
 ) : UplinkLink {
     @Volatile override var connected = false; private set
     @Volatile override var sent = 0L; private set
@@ -60,13 +62,13 @@ class Uplink(
                     s.tcpNoDelay = true
                     s.soTimeout = 15_000
                     s.connect(InetSocketAddress(host, port), 5_000)
+                    val (inp, raw) = secure?.invoke(s) ?: (s.getInputStream() to s.getOutputStream().buffered(1 shl 15))
                     // 心跳讀取：收不到就關 socket，讓卡住的 write 拋例外
                     val reader = launch {
-                        val inp = s.getInputStream()
                         runCatching { while (inp.read() >= 0) Unit }
                         runCatching { s.close() }
                     }
-                    val z = DeflaterOutputStream(s.getOutputStream().buffered(1 shl 15), true)
+                    val z = DeflaterOutputStream(raw, true)
                     z.write(MAGIC)
                     z.write(record(T_HELLO, hello().toByteArray(Charsets.UTF_8)))
                     z.flush()

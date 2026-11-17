@@ -109,7 +109,7 @@ class LogReplayTransport(
 
     /**
      * 物件字典（block upload 讀得到的項目）。0x1008＝裝置名稱，實車回 10 bytes（內容未錄）；
-     * 其餘是測試用假資料：一張短表、一張跨多個 block 的長表。
+     * 其餘是測試樣本（不是任何實車的內容）：一張短表、一張跨多個 block 的長表。
      */
     val od = HashMap<Pair<Int, Int>, ByteArray>().apply {
         put(0x1008 to 0, "REX-REPLAY\u0000".encodeToByteArray())

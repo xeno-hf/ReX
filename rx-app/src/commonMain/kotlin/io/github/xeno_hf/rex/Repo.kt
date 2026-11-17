@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
@@ -314,7 +315,7 @@ class Repo(val platform: Platform) {
     /** 按儀表多功能鈕：[on]=null 依 ECU 現值反轉。結果讀回 ECU 再報「已開啟／已關閉」。 */
     fun pressFun(fn: DashFn, label: String, on: Boolean? = null) = runControl(label, needsLogin = fn !in NO_LOGIN_FUNS,
         onOk = { s -> { when (s.readDash(fn)) { true -> ControlMsg.Outcome.ON; false -> ControlMsg.Outcome.OFF; null -> ControlMsg.Outcome.ERROR } } },
-    ) { it.setDash(fn, on) }
+    ) { s -> if (fn in ECU_SWITCH_FUNS) xb.calui.Interlock.exclusive { s.setDash(fn, on) } else s.setDash(fn, on) }
 
     private fun intList(key: String, def: List<Int>): List<Int> =
         prefs.getString(key, null)?.split(',')?.mapNotNull { it.toIntOrNull() } ?: def
@@ -447,6 +448,39 @@ class Repo(val platform: Platform) {
         }
 
         override fun onEvent(tNanos: Long, text: String) = log(text)
+
+        override fun onTableChanged(table: rx.protocol.ChannelTable) {
+            val reg = registry.value ?: return
+            currentLayout = DecodedLayout(reg, table)
+            history.clear(); live.value = null
+            val s = session ?: return
+            val t = target.value ?: return
+            uplink.value?.let { u -> s.removeListener(u); uplink.value = null; scope.launch { u.close() }; startUplink(s, t, table) }
+        }
+    }
+
+    // ---------------- 功能專頁的即時變數 ----------------
+    /** 這次連線為功能專頁加進頻道表的變數（只加不減；按中斷連線再連就回到使用者的頻道組）。 */
+    /** 為了換頻道表停掉的錄製：串流恢復後接著錄（新的一份）。 */
+    private var resumeRecording = false
+
+    /**
+     * 功能專頁要看 [vars]（absid）。目前頻道表沒有的、名錄裡有的就加進去，串流中換表（ECU 重寫頻道表約 1 秒）。
+     * 換表會讓錄製分成兩份（欄位不同不能接在同一份）。頁面關掉不移除，免得每開一頁就重寫一次。
+     */
+    fun calWatch(vars: List<Int>) {
+        val s = session ?: return
+        val reg = registry.value ?: return
+        if (target.value !is Target.Ecu) return
+        // 跟「接下來要用的頻道表」比（還沒生效的請求也算），重連後表被重設也會再加回來
+        val have = s.requestedTable.entries.map { it.absid }.toSet()
+        val add = vars.filter { it !in have && reg.values[it] != null }.distinct()
+        if (add.isEmpty()) return
+        if (s.requestedTable.entries.size >= rx.protocol.ChannelTable.MAX_ENTRIES) { log("Feature page: no room in the channel table for ${add.joinToString()}"); return }
+        if (recording.value != null) { resumeRecording = true; stopRecording() }
+        val took = s.requestMoreChannels(add.map { rx.protocol.ChannelTable.Entry(it, reg.values[it]!!.cellSize) }).map { it.absid }
+        if (took.size < add.size) log("Feature page: no room in the channel table for ${(add - took.toSet()).joinToString()}")
+        if (took.isNotEmpty()) log("Feature page: adding ${took.size} channels (${took.joinToString()})")
     }
 
     var currentLayout: DecodedLayout? = null; private set
@@ -494,7 +528,7 @@ class Repo(val platform: Platform) {
                 s.state.collectLatest {
                     state.value = it
                     // 連上車（不含體驗模式）就自動開始錄；重連時沿用同一份錄製
-                    if (it == SessionState.Streaming && autoRecord.value && t !is Target.Demo && recording.value == null) startRecording()
+                    if (it == SessionState.Streaming && (autoRecord.value || resumeRecording) && t !is Target.Demo && recording.value == null) { resumeRecording = false; startRecording() }
                 }
             }
             idleJob = scope.launch { autoStopWhenIdle(s) }
@@ -526,6 +560,7 @@ class Repo(val platform: Platform) {
 
     private suspend fun disconnectInternal() {
         idleJob?.cancel(); idleJob = null
+        resumeRecording = false
         stopRecording()
         platform.releaseEcuAp()
         uplink.value?.let { u -> session?.removeListener(u); u.close() }
@@ -547,31 +582,236 @@ class Repo(val platform: Platform) {
     val uplink = MutableStateFlow<UplinkLink?>(null)
 
     private fun startUplink(s: Session, t: Target, table: rx.protocol.ChannelTable) {
+        // 只走配對過的加密連線；沒配對（或讀不到配對資料）就不送，不退回舊的明文串流
+        val pc = syncComputer.value ?: run { log("Live sync off: pair with XenoBrex first"); return }
         val host = uplinkAddr.substringBeforeLast(':')
         val port = uplinkAddr.substringAfterLast(':').toIntOrNull() ?: UPLINK_PORT
         val id = WallClock.format(WallClock.nowMs(), "yyyyMMdd_HHmmss") + "_" + platform.deviceName.replace(' ', '_')
         val info = mapOf(
             "ECU SN" to (if (t is Target.Demo) "REPLAY" else ""), "Table ID" to "", "Product ID" to "",
             "rx.version" to platform.appVersion, "rx.target" to t.toString(), "rx.preset" to presetId,
-            "rx.device" to platform.deviceName,
+            "rx.device" to platform.deviceName, "rx.defs" to (builtinKey.value ?: ""),
+            // 匯入的定義檔沒有平台代號：給序號，XB 用它對自己的定義檔
+            "rx.defs_serial" to (registry.value?.serial ?: ""),
         )
-        val u = platform.startUplink(host, port, { rx.session.uplinkHello(id, table, info) }) ?: return
+        val u = platform.startUplink(host, port, { rx.session.uplinkHello(id, table, info) }, pc, syncMe) ?: return
         s.addListener(u)
         uplink.value = u
-        log("Sync -> $host:$port (id $id)")
+        log("Sync -> $host:$port (id $id, paired with ${pc.name})")
+    }
+
+    // ---------------- 跟 XB 同步（配對、上傳錄製、油圖定義包） ----------------
+    /** 這支手機的同步身分：id 第一次用時亂數產生。 */
+    val syncMe: SyncMe
+        get() {
+            val id = prefs.getString("syncId", null) ?: kotlin.random.Random.nextBytes(12).joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+                .also { prefs.putString("syncId", it) }
+            return SyncMe(id, platform.deviceName)
+        }
+
+    /** 配對過的 XB；token 存在 [secrets] 的 syncToken。 */
+    val syncComputer = MutableStateFlow(loadComputer())
+
+    private fun loadComputer(): SyncComputer? {
+        val idName = prefs.getString("syncComputer", null) ?: return null
+        val tok = secrets.get(SYNC_TOKEN_SLOT)?.takeIf { it.length == 64 } ?: return null
+        return SyncComputer(idName.substringBefore('|'), idName.substringAfter('|'),
+            ByteArray(32) { tok.substring(2 * it, 2 * it + 2).toInt(16).toByte() })
+    }
+
+    private fun syncHostPort(): Pair<String, Int> =
+        uplinkAddr.substringBeforeLast(':').ifEmpty { uplinkAddr } to (uplinkAddr.substringAfterLast(':', "").toIntOrNull() ?: UPLINK_PORT)
+
+    /** 用 XB 畫面上的配對碼配對。成功回 null，失敗回原因（給畫面顯示）。 */
+    suspend fun pairWithComputer(code: String): String? {
+        val (host, port) = syncHostPort()
+        return try {
+            val pc = platform.syncPair(host, port, syncMe, code)
+            prefs.putString("syncComputer", "${pc.id}|${pc.name}")
+            secrets.put(pc.token.joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }, SYNC_TOKEN_SLOT)
+            syncComputer.value = pc
+            log("Paired with ${pc.name} ($host:$port)")
+            restartUplink()
+            null
+        } catch (e: SyncRefusedException) {
+            e.reason
+        } catch (e: Exception) {
+            e.message ?: e::class.simpleName ?: "error"
+        }
+    }
+
+    fun unpairComputer() {
+        prefs.putString("syncComputer", null); secrets.put(null, SYNC_TOKEN_SLOT)
+        syncComputer.value = null
+        restartUplink()
+    }
+
+    /** 連線中的同步換成新的設定（配對、取消配對後）。 */
+    private fun restartUplink() {
+        val s = session ?: return
+        val t = target.value ?: return
+        uplink.value?.let { u -> s.removeListener(u); uplink.value = null; scope.launch { u.close() } }
+        if (uplinkEnabled) startUplink(s, t, s.table)
+    }
+
+    sealed interface SyncStatus {
+        object Idle : SyncStatus
+        class Running(val done: Int, val total: Int) : SyncStatus
+        class Done(val outcome: SyncOutcome, val defsSaved: Boolean, val tunePackSaved: Boolean = false) : SyncStatus
+        class Failed(val reason: String) : SyncStatus
+    }
+    val syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
+
+    /** 跟 XB 同步一次：上傳 XB 還沒有的錄製（打包成 .xbl），順便拿油圖定義包。 */
+    fun syncNow() {
+        val pc = syncComputer.value ?: return
+        if (syncStatus.value is SyncStatus.Running) return
+        syncStatus.value = SyncStatus.Running(0, 0)
+        scope.launch {
+            val (host, port) = syncHostPort()
+            val busy = recording.value?.dir?.name
+            val rides = SessionDir.list(sessionsRoot).map { it.dir.name }.filter { it != busy && !it.startsWith("DEMO") }
+            val work = Path(platform.cacheDir, "sync")
+            syncStatus.value = try {
+                val out = platform.syncNow(host, port, syncMe, pc, rides, { name ->
+                    runCatching {
+                        val f = Path(work, "$name.xbl")
+                        rx.session.XblPack.pack(Path(sessionsRoot, name), f, Path(work, "stage_$name"), rx.session.ShareExport.Mode.DIAGNOSTIC, "ReX ${platform.appVersion}")
+                        f
+                    }.getOrNull()
+                }, mapDefsRequest(), tunePackRequest()) { done, total -> syncStatus.value = SyncStatus.Running(done, total) }
+                val saved = out.defs?.let { saveMapDefs(it.encodeToByteArray()) == null } == true
+                val tpErr = out.tunePack?.let { tuning.savePack(it) }
+                log("Synced with ${pc.name}: ${out.uploaded.size} uploaded, ${out.alreadyThere} already there, ${out.failed.size} failed" +
+                    (out.defsError?.let { "; map definitions: $it" } ?: if (saved) "; map definitions updated" else "") +
+                    (out.tunePackError?.let { "; tune pack: $it" } ?: tpErr?.let { "; tune pack not saved: $it" } ?: if (out.tunePack != null) "; tune pack updated" else ""))
+                SyncStatus.Done(out, saved, out.tunePack != null && tpErr == null)
+            } catch (e: SyncRefusedException) {
+                SyncStatus.Failed(e.reason)
+            } catch (e: Exception) {
+                SyncStatus.Failed(e.message ?: e::class.simpleName ?: "error")
+            } finally {
+                runCatching { Fs.delete(work) }
+            }
+        }
+    }
+
+    /** 要哪個型號的定義包：這次（或上次）連線讀到的 ECU 型號；都沒有就照目前用的定義檔平台、不篩版本。 */
+    private fun mapDefsRequest(): Map<String, String> {
+        val v = prefs.getString("lastVehicle", null)?.split('|')
+        return if (v != null && v.size >= 3 && v[0].isNotEmpty()) mapOf("map_type" to v[0], "c" to v[1], "table_id" to v[2])
+        else mapOf("platform" to (builtinKey.value ?: "S3"))
+    }
+
+    /** 要哪台車的調校包：這次（或上次）連線讀到的 ECU 型號；沒讀過就不要。 */
+    private fun tunePackRequest(): Map<String, String>? {
+        val v = prefs.getString("lastVehicle", null)?.split('|') ?: return null
+        return if (v.size >= 3 && v[0].isNotEmpty() && v[2].isNotEmpty()) mapOf("map_type" to v[0], "c" to v[1], "table_id" to v[2]) else null
+    }
+
+    /** 即時調校（1.0）。 */
+    val tuning = Tuning(this, scope)
+
+    // ---------------- 油圖頁（只看不改） ----------------
+    private val mapDefsDir: Path get() = Path(platform.filesDir, "mapdefs")
+
+    /** 存著的油圖定義包：平台代號（S3、X2…）→ 定義。 */
+    val mapDefs = MutableStateFlow<Map<String, rx.session.MapDefs>>(emptyMap())
+
+    init {
+        scope.launch {
+            mapDefs.value = Fs.list(mapDefsDir).filter { it.name.endsWith(".json") }.mapNotNull { f ->
+                runCatching { rx.session.MapDefs.parse(Fs.readText(f)) }.getOrNull()?.let { it.platform to it }
+            }.toMap()
+        }
+    }
+
+    /** 收下一份定義包（XB 同步來的或使用者選的檔）。成功回 null，否則回原因。 */
+    fun saveMapDefs(bytes: ByteArray): String? {
+        val d = try { rx.session.MapDefs.parse(bytes.decodeToString()) } catch (e: Exception) { return e.message ?: "invalid" }
+        if (d.platform.isBlank() || d.platform.any { !it.isLetterOrDigit() && it != '_' }) return "invalid platform"
+        Fs.writeBytes(Path(mapDefsDir, "${d.platform}.json"), bytes)
+        mapDefs.value = mapDefs.value + (d.platform to d)
+        log("Map definitions: ${d.tables.size} tables for ${d.mapType.ifEmpty { d.platform }} C${d.c ?: "*"} (${d.app})")
+        return null
+    }
+
+    /** 目前這台 ECU（沒連就用目前的定義檔平台）用的油圖定義。 */
+    fun currentMapDefs(): rx.session.MapDefs? {
+        val key = session?.platform?.value?.controlFile ?: builtinKey.value ?: return mapDefs.value.values.firstOrNull()
+        return mapDefs.value[key]
+    }
+
+    /** 從 ECU 讀一張表的每一列（原始值）；讀不到回 null 和原因。 */
+    suspend fun readMapRows(id: Int, rows: Int, cols: Int, bytes: Int): Result<List<LongArray>> {
+        val s = session ?: return Result.failure(IllegalStateException("not connected"))
+        val out = ArrayList<LongArray>(rows)
+        for (r in 0 until rows) {
+            val d = s.readObject(0x3000 + id, r, block = cols * bytes > 4).getOrElse { return Result.failure(it) }.first
+            out += rx.session.MapDefs.decodeRow(d, cols, bytes) ?: return Result.failure(IllegalStateException("row $r: ${d.size} bytes, expected ${cols * bytes}"))
+        }
+        return Result.success(out)
     }
 
     // ---------------- 錄製 ----------------
+    /** 這次連線讀到的車子型號（車種代碼、V／C／A）；換連線就重讀。 */
+    private var vehicleInfo: Map<String, String>? = null
+    private var vehicleInfoFor: Pair<Session, Long>? = null
+    private var startingRecording = false
+
+    /**
+     * 讀 ECU 的型號：0x1018 sub 6／8／9＝V／C／A，表 1001＝車種代碼（例 05_18_10_01）。唯讀，每次連線只讀一次，
+     * 帶進 loga 表頭的 Table ID 與 .xbl 的車子型號。讀不到就空著，不影響錄製。
+     */
+    /** 調校用：這條連線讀到的型號（同 [readVehicle]，讀過就不再讀）。 */
+    /** 這條連線上 ECU 的型號。[fresh]＝不用快取、一定重讀（開始調校時）。 */
+    internal suspend fun vehicleOf(s: Session, fresh: Boolean = false): Map<String, String> = readVehicle(s, fresh)
+
+    private suspend fun readVehicle(s: Session, fresh: Boolean = false): Map<String, String> {
+        // 快取綁連線代號：Session 物件會跨好幾條 TCP 連線，重連後可能是另一台 ECU
+        if (!fresh && vehicleInfoFor?.let { it.first === s && it.second == s.generation } == true) vehicleInfo?.let { return it }
+        val gen = s.generation
+        val out = LinkedHashMap<String, String>()
+        kotlinx.coroutines.withTimeoutOrNull(5_000) { s.loggedIn.first { it } }
+        for ((sub, key) in listOf(6 to rx.session.XblPack.INFO_V, 8 to rx.session.XblPack.INFO_C, 9 to rx.session.XblPack.INFO_A)) {
+            s.readObject(0x1018, sub, block = false).getOrNull()?.first?.takeIf { it.isNotEmpty() }?.let { d ->
+                out[key] = ((d[0].toInt() and 0xFF) or (if (d.size > 1) (d[1].toInt() and 0xFF) shl 8 else 0)).toString()
+            }
+        }
+        s.readObject(0x3000 + 1001, 0, block = false).getOrNull()?.first?.takeIf { it.size == 4 }?.let { d ->
+            val v = (0 until 4).fold(0L) { a, i -> a or ((d[i].toLong() and 0xFF) shl (8 * i)) }
+            out["Table ID"] = rx.session.XblPack.tableIdText(v)
+        }
+        log("ECU model: ${out["Table ID"] ?: "vehicle code not read"}, V${out[rx.session.XblPack.INFO_V] ?: "?"} C${out[rx.session.XblPack.INFO_C] ?: "?"}")
+        vehicleInfo = out; vehicleInfoFor = s to gen
+        // 同步時跟 XB 要這個型號的油圖定義包
+        val mapType = s.platform.value?.let(rx.session.XblPack::mapType)
+        if (mapType != null && out["Table ID"] != null) prefs.putString("lastVehicle", "$mapType|${out[rx.session.XblPack.INFO_C] ?: ""}|${out["Table ID"]}")
+        return out
+    }
+
+    /** 開始錄製。實車先讀型號（約一秒內）再開檔；體驗模式不讀。 */
     fun startRecording() {
         val s = session ?: return
+        if (recording.value != null || startingRecording) return
+        startingRecording = true
+        scope.launch {
+            try {
+                val vehicle = if (target.value is Target.Demo) emptyMap() else readVehicle(s)
+                if (session === s) startRecordingNow(s, vehicle)
+            } finally { startingRecording = false }
+        }
+    }
+
+    private fun startRecordingNow(s: Session, vehicle: Map<String, String>) {
         val layout = currentLayout ?: return
         if (recording.value != null) return
         val label = if (target.value is Target.Demo) "DEMO" else "ECU"
         val dir = Recorder.newSessionDir(sessionsRoot, label)
         val info = mapOf(
             "ECU SN" to (if (label == "DEMO") "REPLAY" else ""),
-            "Table ID" to "", "Product ID" to "",
-        ) + mapOf(
+            "Table ID" to (vehicle["Table ID"] ?: ""), "Product ID" to "",
+        ) + vehicle.filterKeys { it != "Table ID" } + mapOf(
             "rx.version" to platform.appVersion,
             "rx.target" to (target.value?.toString() ?: ""),
             "rx.preset" to presetId,
@@ -602,8 +842,14 @@ class Repo(val platform: Platform) {
     fun stopRecording() {
         val rec = recording.value ?: return
         session?.removeListener(rec)
-        rec.onEvent(platform.elapsedNanos(), "Recording stopped: ${rec.rounds} rounds")
-        rec.close()
+        runCatching { rec.onEvent(platform.elapsedNanos(), "Recording stopped: ${rec.rounds} rounds") }
+        try {
+            rec.close()
+        } catch (e: Exception) {
+            // 收不完（例：儲存空間滿了）：關檔放棄沒寫出去的部分，這筆錄製的 meta 看得出沒收完
+            rec.abandon()
+            log("Recording did not finalize: ${e.message ?: e::class.simpleName}")
+        }
         recording.value = null
         liveMarks.value = emptyList()
         log("Recording stopped: ${rec.rounds} rounds, ${rec.frames} frames")
@@ -636,6 +882,7 @@ class Repo(val platform: Platform) {
         )
         const val AUTO_RECORD_DEFAULT = false
         const val UPLINK_PORT = 6680
+        const val SYNC_TOKEN_SLOT = "syncToken"
         val SLOT_MAX = mapOf("race" to 4, "cruise" to 6)
 
         /**

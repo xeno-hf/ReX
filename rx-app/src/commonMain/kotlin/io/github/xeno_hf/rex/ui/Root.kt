@@ -86,8 +86,8 @@ import io.github.xeno_hf.rex.Target
 
 private enum class Tab(val label: Int, val icon: ImageVector) {
     Dash(R.string.tab_dash, Icons.Filled.Home),
-    Scope(R.string.tab_scope, Icons.Filled.DateRange),
-    Channels(R.string.tab_channels, Icons.AutoMirrored.Filled.List),
+    Monitor(R.string.tab_monitor, Icons.Filled.DateRange),
+    Map(R.string.tab_map, Icons.Filled.Place),
     Records(R.string.tab_records, Icons.Filled.Star),
     More(R.string.tab_more, Icons.Filled.Menu),
 }
@@ -157,7 +157,9 @@ fun RxRoot(startTab: String? = null) {
     val state by repo.state.collectAsState()
     val rec by repo.recording.collectAsState()
     val target by repo.target.collectAsState()
-    var tab by rememberSaveable { mutableStateOf(Tab.entries.firstOrNull { it.name.equals(startTab, ignoreCase = true) } ?: Tab.Dash) }
+    // 舊的頁籤名稱（scope、channels）現在是「監控」裡的分頁
+    var tab by rememberSaveable { mutableStateOf(Tab.entries.firstOrNull { it.name.equals(startTab, ignoreCase = true) }
+        ?: Tab.Monitor.takeIf { startTab.equals("scope", true) || startTab.equals("channels", true) } ?: Tab.Dash) }
     var showConnect by remember { mutableStateOf(false) }
 
     LaunchedEffect(target) { repo.platform.keepScreenOn(target != null && repo.keepScreenOn) }
@@ -173,12 +175,12 @@ fun RxRoot(startTab: String? = null) {
     val content: @Composable () -> Unit = {
         when (tab) {
             Tab.Dash -> DashboardScreen()
-            Tab.Scope -> ScopeScreen()
-            Tab.Channels -> ChannelsScreen()
+            Tab.Monitor -> MonitorScreen(startTab)
+            Tab.Map -> TuneScreen()
             Tab.Records -> RecordsScreen()
             Tab.More -> MoreScreen()
         }
-        if (target == null && tab != Tab.Records && tab != Tab.More) {
+        if (target == null && tab != Tab.Records && tab != Tab.More && tab != Tab.Map) {
             IdleHint(onConnect = { showConnect = true })
         }
     }

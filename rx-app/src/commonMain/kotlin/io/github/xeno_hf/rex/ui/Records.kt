@@ -46,6 +46,7 @@ fun RecordsScreen() {
     var list by remember { mutableStateOf<List<SessionDir>>(emptyList()) }
     var confirmDelete by remember { mutableStateOf<SessionDir?>(null) }
     var confirmShare by remember { mutableStateOf<SessionDir?>(null) }
+    var confirmPack by remember { mutableStateOf<SessionDir?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(refresh, rec) { list = withContext(Dispatchers.Default) { SessionDir.list(repo.sessionsRoot) } }
@@ -88,6 +89,7 @@ fun RecordsScreen() {
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { confirmShare = s }) { Text(stringResource(R.string.rec_share_all)) }
+                            TextButton(enabled = rec?.dir != s.dir, onClick = { confirmPack = s }) { Text(stringResource(R.string.rec_pack_xbl)) }
                             TextButton(onClick = {
                                 val f = kotlinx.io.files.Path(s.dir, "decoded.loga")
                                 if (io.github.xeno_hf.rex.Fs.exists(f)) scope.launch {
@@ -131,6 +133,30 @@ fun RecordsScreen() {
             text = { Text(stringResource(R.string.rec_share_text)) },
             confirmButton = { TextButton(onClick = { share(rx.session.ShareExport.Mode.PUBLIC) }) { Text(stringResource(R.string.rec_share_public)) } },
             dismissButton = { TextButton(onClick = { share(rx.session.ShareExport.Mode.DIAGNOSTIC) }) { Text(stringResource(R.string.rec_share_full), color = RxColors.warn) } },
+        )
+    }
+    confirmPack?.let { s ->
+        // 要打包才打包（2026-11-16 使用者定）：錄製照舊是資料夾，這裡才壓成 .xbl 交給分享面板
+        fun pack(mode: rx.session.ShareExport.Mode) {
+            confirmPack = null
+            scope.launch {
+                val tag = if (mode == rx.session.ShareExport.Mode.PUBLIC) "" else "_full"
+                val out = kotlinx.io.files.Path(repo.shareDir, "${s.dir.name}$tag.xbl")
+                runCatching {
+                    withContext(Dispatchers.Default) {
+                        rx.session.XblPack.pack(s.dir, out, kotlinx.io.files.Path(repo.shareDir, "staging", s.dir.name + tag + "_xbl"), mode, "ReX ${repo.platform.appVersion}")
+                    }
+                    repo.platform.share(out, rx.session.XblPack.MIME, s.dir.name)
+                }.onFailure { Toasts.show(it.message ?: "Pack failed") }
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { confirmPack = null },
+            containerColor = RxColors.card,
+            title = { Text(stringResource(R.string.rec_pack_title)) },
+            text = { Text(stringResource(R.string.rec_pack_text)) },
+            confirmButton = { TextButton(onClick = { pack(rx.session.ShareExport.Mode.PUBLIC) }) { Text(stringResource(R.string.rec_share_public)) } },
+            dismissButton = { TextButton(onClick = { pack(rx.session.ShareExport.Mode.DIAGNOSTIC) }) { Text(stringResource(R.string.rec_share_full), color = RxColors.warn) } },
         )
     }
     confirmDelete?.let { s ->

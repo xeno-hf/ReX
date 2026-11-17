@@ -9,6 +9,11 @@ plugins {
     id("org.jetbrains.compose") version "1.8.2" apply false
 }
 
+subprojects {
+    if (!projectDir.canonicalFile.toPath().startsWith(rootDir.canonicalFile.toPath()))
+        layout.buildDirectory.set(rootProject.layout.buildDirectory.dir("shared/$name"))
+}
+
 // 核心模組：Kotlin Multiplatform。JVM（Android、桌面測試）＋ iOS。
 // iOS 目標只在 macOS 上編譯（Linux 上 Gradle 會略過並警告）。
 val coreModules = setOf("rx-protocol", "rx-defs", "rx-session")

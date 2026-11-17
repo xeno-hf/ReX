@@ -80,24 +80,80 @@ class Sha256 {
     }
 }
 
-/** 寫出去的每個位元組都順手餵給 [sha]。 */
+/**
+ * 下游一個位元組都沒寫就拒絕這次寫入（例：錄製上限，寫之前先檢查）。
+ * [HashingSink] 只對這種錯誤留著資料重送；其他錯誤看不出寫了多少，一律當成壞掉。
+ */
+open class WriteRejectedException(message: String) : kotlinx.io.IOException(message)
+
+/**
+ * 寫出去的每個位元組都順手餵給 [sha]：只算真的交給 [out] 的位元組。
+ *
+ * [out] 丟 [WriteRejectedException]（一個位元組都沒寫）：已從來源讀出的那一段留在 [chunk]，
+ * 下一次 write／flush／close 先把它送出去，順序不變，不會掉資料也不會多算雜湊。
+ * 其他錯誤（可能寫了一部分，例如 OutputStream 寫到一半出錯）：不重送（會重複），這個 sink 從此壞掉，之後每個動作都丟同一個錯，
+ * 錄製算不完整；[close] 仍會關掉 [out]。
+ * [close] 時還有資料送不出去（例：上限還沒放寬）：不關 [out]、資料留著，可以再 close 一次；要放棄就 [abandon]。
+ */
 internal class HashingSink(private val out: RawSink) : RawSink {
     val sha = Sha256()
     private val chunk = ByteArray(8192)
+    /** [chunk] 裡還沒交給 [out] 的位元組數。 */
+    private var pending = 0
     private val pass = Buffer()
+    private var broken: Throwable? = null
+    private var outClosed = false
+
+    private fun drain() {
+        broken?.let { throw it }
+        if (pending == 0) return
+        pass.write(chunk, 0, pending)
+        try {
+            out.write(pass, pending.toLong())
+        } catch (t: Throwable) {
+            val rejected = t is WriteRejectedException && pass.size == pending.toLong()
+            pass.clear()
+            if (!rejected) { broken = t; pending = 0 }
+            throw t
+        }
+        sha.update(chunk, 0, pending)
+        pending = 0
+    }
 
     override fun write(source: Buffer, byteCount: Long) {
+        drain()
         var left = byteCount
         while (left > 0) {
             val n = minOf(left, chunk.size.toLong()).toInt()
             source.readTo(chunk, 0, n)
-            sha.update(chunk, 0, n)
-            pass.write(chunk, 0, n)
-            out.write(pass, n.toLong())
+            pending = n
             left -= n
+            drain()
         }
     }
 
-    override fun flush() = out.flush()
-    override fun close() = out.close()
+    override fun flush() { drain(); out.flush() }
+
+    /** 還有資料沒交給 [out]（上限擋下、等著重送）。 */
+    val hasPending: Boolean get() = pending > 0
+
+    override fun close() {
+        val b = broken
+        if (b != null) { runCatching { closeOut() }; throw b }
+        if (outClosed) return
+        drain()
+        closeOut()
+    }
+
+    /** 放棄還沒送出的資料，關掉 [out]（收檔一直失敗時釋放檔案）。 */
+    fun abandon() {
+        pending = 0
+        runCatching { closeOut() }
+    }
+
+    private fun closeOut() {
+        if (outClosed) return
+        out.close()
+        outClosed = true
+    }
 }

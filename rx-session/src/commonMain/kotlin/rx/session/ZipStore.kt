@@ -6,8 +6,8 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 
 /**
- * 只存不壓的 ZIP（分享整個錄製資料夾用；錄製檔本身就是文字＋二進位，壓縮省不了多少，換來兩個平台同一份程式）。
- * 檔案逐塊讀（先算 CRC、再複製），記憶體用量與檔案大小無關。不支援 ZIP64：單檔或整包超過 2 GiB 就拒絕。
+ * 寫 ZIP。[zipDir]：只存不壓（分享整個錄製資料夾用）；[zip]：逐個成員選存或壓（.xbl 用，壓縮見 [RawDeflate]）。
+ * 檔案逐塊讀（先算 CRC、再複製或壓），記憶體用量與檔案大小無關。不支援 ZIP64：單檔或整包超過 2 GiB 就拒絕。
  */
 object ZipStore {
     private const val LIMIT = Int.MAX_VALUE.toLong()
@@ -37,6 +37,58 @@ object ZipStore {
         }
     }
 
+    /** 一個成員：內容來自檔案 [file] 或位元組 [bytes]；[deflate]＝要不要壓。 */
+    class Entry(val name: String, val file: Path? = null, val bytes: ByteArray? = null, val deflate: Boolean = true) {
+        init { require((file == null) != (bytes == null)) { "Entry needs a file or bytes" } }
+    }
+
+    /**
+     * 依序寫出 [entries]。要壓的成員先壓到 [scratch]（暫存檔，寫完刪掉）以得到壓縮後的大小，檔頭不用資料描述區。
+     * 寫到一半失敗會丟例外，[out] 可能不完整，呼叫者自己刪。
+     */
+    fun zip(entries: List<Entry>, out: Path, scratch: Path) {
+        val central = ArrayList<ByteArray>()
+        var offset = 0L
+        out.parent?.let { SystemFileSystem.createDirectories(it) }
+        val buf = ByteArray(1 shl 16)
+        try {
+            SystemFileSystem.sink(out).buffered().use { s ->
+                for (e in entries) {
+                    val name = e.name.encodeToByteArray()
+                    val size = e.bytes?.size?.toLong() ?: (SystemFileSystem.metadataOrNull(e.file!!)?.size ?: error("Cannot read ${e.file.name}"))
+                    require(size <= LIMIT) { "${e.name} is too large for one ZIP" }
+                    val crc = e.bytes?.let(::crc32) ?: crc32(e.file!!, buf)
+                    val stored = if (e.deflate) {
+                        val d = RawDeflate()
+                        try {
+                            SystemFileSystem.sink(scratch).buffered().use { t ->
+                                val w: (ByteArray, Int) -> Unit = { b, n -> t.write(b, 0, n) }
+                                if (e.bytes != null) d.update(e.bytes, 0, e.bytes.size, w) else chunks(e.file!!, buf) { n -> d.update(buf, 0, n, w) }
+                                d.finish(w)
+                            }
+                        } finally { d.end() }
+                        SystemFileSystem.metadataOrNull(scratch)?.size ?: error("Cannot read the scratch file")
+                    } else size
+                    require(offset + stored <= LIMIT) { "Too large to write as one ZIP" }
+                    val method = if (e.deflate) 8 else 0
+                    val local = header(0x04034b50, name, crc, size.toInt(), central = false, offset = 0, method = method, compressed = stored.toInt())
+                    s.write(local); s.write(name)
+                    val wrote = when {
+                        e.deflate -> copy(scratch, s, buf)
+                        e.bytes != null -> { s.write(e.bytes); size }
+                        else -> copy(e.file!!, s, buf)
+                    }
+                    require(wrote == stored) { "${e.name} changed while writing" }
+                    central += header(0x02014b50, name, crc, size.toInt(), central = true, offset = offset, method = method, compressed = stored.toInt()) + name
+                    offset += local.size + name.size + stored
+                }
+                val cdSize = central.sumOf { it.size }
+                central.forEach { s.write(it) }
+                s.write(le32(0x06054b50) + le16(0) + le16(0) + le16(entries.size) + le16(entries.size) + le32(cdSize) + le32(offset.toInt()) + le16(0))
+            }
+        } finally { if (SystemFileSystem.exists(scratch)) SystemFileSystem.delete(scratch) }
+    }
+
     private fun walkFiles(p: Path): List<Path> =
         if (SystemFileSystem.metadataOrNull(p)?.isDirectory == true) SystemFileSystem.list(p).flatMap(::walkFiles) else listOf(p)
 
@@ -52,8 +104,8 @@ object ZipStore {
         return total
     }
 
-    private fun header(sig: Int, name: ByteArray, crc: Int, size: Int, central: Boolean, offset: Long): ByteArray {
-        val common = le16(20) + le16(0x0800) + le16(0) + le16(0) + le16(0x21) + le32(crc) + le32(size) + le32(size) + le16(name.size) + le16(0)
+    private fun header(sig: Int, name: ByteArray, crc: Int, size: Int, central: Boolean, offset: Long, method: Int = 0, compressed: Int = size): ByteArray {
+        val common = le16(20) + le16(0x0800) + le16(method) + le16(0) + le16(0x21) + le32(crc) + le32(compressed) + le32(size) + le16(name.size) + le16(0)
         return if (!central) le32(sig) + common
         else le32(sig) + le16(20) + common + le16(0) + le16(0) + le16(0) + le32(0) + le32(offset.toInt())
     }

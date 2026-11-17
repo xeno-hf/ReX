@@ -1,16 +1,15 @@
 package rx.protocol
 
 /**
- * ECU 的 RPC 就是標準 CANopen SDO（CiA 301），2026-10-15 定案。
+ * ECU 的 RPC 就是標準 CANopen SDO（CiA 301）。
  *
- * 證據：
- * - XTune  命令位元組 = `c.b(v) << 5`，：1→1、2→2、3→5、4→6
- *   → 小寫 0x2X（expedited download）、小讀 0x40（initiate upload）、區塊讀 0xA4（block upload, CRC 位）、區塊寫 0xC6
- * - XTune （讀狀態機）：0xA4 → 等 init 回應（bit1＝帶長度）→ 送 0xA3 → 收 seq 片段（bit7＝末片）
- *   → 送 0xA2 ackseq 0x7F → 收 end（`(b>>2)&7`＝末片無效位元組、`b&3==1`）→ 送 0xA1
- * - 2026-09-20 實車：0x1008 區塊讀回 `c2 08 10 00 0a …`＝block upload init 回應（s=1、10 bytes）——當時誤記成「addr echo」；
+ * 命令位元組的高 3 位元是 SDO command specifier：
+ * 0x2X（expedited download）、0x40（initiate upload）、0xA4（block upload，含 CRC 位）、0xC6（block download）。
  *
- * 這裡只做讀（upload）。下載（寫）仍走 [Rpc.smallWrite] 並受寫入閘門管制。
+ * 讀取流程（block upload）：0xA4 → init 回應（bit1＝帶長度）→ 送 0xA3 → 收 seq 片段（bit7＝末片）
+ * → 送 0xA2 ackseq → 收 end（`(b>>2)&7`＝末片無效位元組、`b&3==1`）→ 送 0xA1。
+ *
+ * 這裡只做讀（upload）。下載（寫）仍走 [Rpc.smallWrite] 並受寫入閘門控制。
  */
 object Sdo {
     const val CCS_DOWNLOAD = 1

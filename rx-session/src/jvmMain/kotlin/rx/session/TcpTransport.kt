@@ -13,7 +13,7 @@ import javax.net.SocketFactory
 /**
  * TCP 6666。Android 端傳入綁定 WiFi Network 的 [SocketFactory]
  * （XTune 也這樣做，避免沒網路的 ECU AP 被行動網路搶走路由）。
- * Socket 參數照 XTune `aRacerWiFiCANService.c`：TcpNoDelay、Recv 8192、Send 5120。
+ * Socket 參數跟 XTune 一樣：TcpNoDelay、Recv 8192、Send 5120。
  */
 class TcpTransport private constructor(private val socket: Socket) : Transport {
     private val input: InputStream = socket.getInputStream()

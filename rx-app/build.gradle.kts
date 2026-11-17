@@ -68,8 +68,10 @@ kotlin {
     sourceSets {
         commonMain {
             kotlin.srcDir(genStrings)
+            kotlin.srcDir(rootDir.resolve("xb-calui/src/commonMain/kotlin"))
             dependencies {
                 api(project(":rx-session"))
+                api(project(":xb-link"))
                 api(compose.runtime)
                 api(compose.foundation)
                 api(compose.material3)
