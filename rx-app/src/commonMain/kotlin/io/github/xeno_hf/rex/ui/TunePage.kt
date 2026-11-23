@@ -111,8 +111,8 @@ fun TuneScreen() {
                     OutlinedButton(enabled = sync !is io.github.xeno_hf.rex.Repo.SyncStatus.Running, onClick = { repo.syncNow() }) { Text(stringResource(R.string.sync_now)) }
                     when (val x = sync) {
                         is io.github.xeno_hf.rex.Repo.SyncStatus.Running -> Text(stringResource(R.string.sync_running, x.done, x.total), color = RxColors.muted, fontSize = 12.sp)
-                        is io.github.xeno_hf.rex.Repo.SyncStatus.Done -> Text(if (x.tunePackSaved) stringResource(R.string.sync_tunepack_ok) else stringResource(R.string.sync_tunepack_none, x.outcome.tunePackError ?: "—"), color = RxColors.muted, fontSize = 12.sp)
-                        is io.github.xeno_hf.rex.Repo.SyncStatus.Failed -> Text(x.reason, color = RxColors.danger, fontSize = 12.sp)
+                        is io.github.xeno_hf.rex.Repo.SyncStatus.Done -> Text(if (x.tunePackSaved) stringResource(R.string.sync_tunepack_ok) else stringResource(R.string.sync_tunepack_none, x.outcome.tunePackError?.let { tunePackReason(it, x.outcome.tunePackErrorLocal) } ?: "—"), color = RxColors.muted, fontSize = 12.sp)
+                        is io.github.xeno_hf.rex.Repo.SyncStatus.Failed -> Text(syncReason(x.reason), color = RxColors.danger, fontSize = 12.sp)
                         else -> Unit
                     }
                 }

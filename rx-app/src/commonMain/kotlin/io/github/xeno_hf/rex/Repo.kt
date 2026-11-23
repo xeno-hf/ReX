@@ -662,6 +662,7 @@ class Repo(val platform: Platform) {
             restartUplink()
             null
         } catch (e: SyncRefusedException) {
+            e.cause?.let { log("Pairing failed (${e.reason}): $it") }
             e.reason
         } catch (e: Exception) {
             e.message ?: e::class.simpleName ?: "error"
@@ -711,6 +712,7 @@ class Repo(val platform: Platform) {
                     (out.tunePackError?.let { "; tune pack: $it" } ?: tpErr?.let { "; tune pack not saved: $it" } ?: if (out.tunePack != null) "; tune pack updated" else ""))
                 SyncStatus.Done(out, saved, out.tunePack != null && tpErr == null)
             } catch (e: SyncRefusedException) {
+                e.cause?.let { log("Sync failed (${e.reason}): $it") }
                 SyncStatus.Failed(e.reason)
             } catch (e: Exception) {
                 SyncStatus.Failed(e.message ?: e::class.simpleName ?: "error")

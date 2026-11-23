@@ -280,7 +280,7 @@ class AndroidPlatform(private val app: Context) : Platform {
     private fun SyncComputer.peer() = rx.session.sync.SyncWire.Peer(id, name, token, 0)
 
     override suspend fun syncPair(host: String, port: Int, me: SyncMe, code: String): SyncComputer = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        val p = try { syncClient(host, port, me).pair(code) } catch (e: rx.session.sync.SyncWire.SyncRefused) { throw SyncRefusedException(e.reason) }
+        val p = try { syncClient(host, port, me).pair(code) } catch (e: rx.session.sync.SyncWire.SyncRefused) { throw SyncRefusedException(e.reason, e.cause) }
         SyncComputer(p.id, p.name, p.token)
     }
 
@@ -292,8 +292,8 @@ class AndroidPlatform(private val app: Context) : Platform {
     ): SyncOutcome = kotlinx.coroutines.withContext(Dispatchers.IO) {
         val r = try {
             syncClient(host, port, me).sync(computer.peer(), rides, { n -> pack(n)?.let { File(it.toString()) } }, defsRequest, tunePackRequest) { done, total, _ -> progress(done, total) }
-        } catch (e: rx.session.sync.SyncWire.SyncRefused) { throw SyncRefusedException(e.reason) }
-        SyncOutcome(r.uploaded, r.alreadyThere, r.failed, r.defs?.toString(Charsets.UTF_8), r.defsError, r.tunePack, r.tunePackError)
+        } catch (e: rx.session.sync.SyncWire.SyncRefused) { throw SyncRefusedException(e.reason, e.cause) }
+        SyncOutcome(r.uploaded, r.alreadyThere, r.failed, r.defs?.toString(Charsets.UTF_8), r.defsError, r.tunePack, r.tunePackError, r.tunePackErrorLocal)
     }
 
     override fun share(path: Path, mime: String, title: String) {

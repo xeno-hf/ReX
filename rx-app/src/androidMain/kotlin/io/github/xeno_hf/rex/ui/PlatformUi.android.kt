@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -52,17 +53,34 @@ actual fun rememberLocalNetworkAccess(): LocalNetworkAccess {
     val activity = LocalActivity.current
     var granted by remember { mutableStateOf(platform.hasLocalNetwork()) }
     // 從設定頁打開權限再回來：回到前景就重新檢查
+    // 系統已經不再跳詢問：不自動帶去設定頁（返回鍵關掉詢問也可能是這個結果），改成讓使用者按「打開設定」
+    var needsSettings by rememberSaveable { mutableStateOf(false) }
     LifecycleResumeEffect(platform) {
         granted = platform.hasLocalNetwork()
+        if (granted) needsSettings = false
         onPauseOrDispose { }
     }
-    val l = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+    // 要權限之前的 shouldShowRequestPermissionRationale：拒絕過一次是 true；沒問過或已經永久拒絕是 false。
+    // 詢問期間 Activity 可能被重建，結果晚點才回來：要跟著存
+    var rationaleBefore by rememberSaveable { mutableStateOf(false) }
+    // 用一項的 RequestMultiplePermissions：詢問被取消（不是按不允許）時結果是空的，RequestPermission 會跟拒絕一樣回 false
+    val l = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         granted = platform.hasLocalNetwork()
-        // 系統已經不再跳詢問（拒絕過兩次）：帶去 App 的設定頁讓使用者自己打開
-        if (!ok && activity != null && !activity.shouldShowRequestPermissionRationale(LOCAL_NETWORK))
-            activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.packageName, null)))
+        if (result.isEmpty()) return@rememberLauncherForActivityResult
+        val ok = result[LOCAL_NETWORK] == true
+        // 前後都是 false：系統這次沒跳詢問（已經永久拒絕）。剛按下第二次「不允許」的那一下是 true → false，不算
+        if (ok) needsSettings = false
+        else if (activity != null && !rationaleBefore && !activity.shouldShowRequestPermissionRationale(LOCAL_NETWORK)) needsSettings = true
     }
-    return LocalNetworkAccess(granted) { if (Build.VERSION.SDK_INT >= 37) l.launch(LOCAL_NETWORK) else granted = platform.hasLocalNetwork() }
+    return LocalNetworkAccess(granted, {
+        if (Build.VERSION.SDK_INT < 37) granted = platform.hasLocalNetwork()
+        else if (needsSettings && activity != null)
+            activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.packageName, null)))
+        else {
+            rationaleBefore = activity?.shouldShowRequestPermissionRationale(LOCAL_NETWORK) == true
+            l.launch(arrayOf(LOCAL_NETWORK))
+        }
+    }, needsSettings)
 }
 
 private const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"

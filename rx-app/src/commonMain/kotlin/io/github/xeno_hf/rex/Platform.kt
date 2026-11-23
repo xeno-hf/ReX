@@ -144,7 +144,9 @@ class SyncOutcome(
     val uploaded: List<String>, val alreadyThere: Int, val failed: Map<String, String>, val defs: String?, val defsError: String?,
     /** 調校包（ZIP，即時調校用）；沒要或要不到是 null，原因在 [tunePackError]。 */
     val tunePack: ByteArray? = null, val tunePackError: String? = null,
+    /** [tunePackError] 是本機判斷的代碼（connection-lost、closed-on-tune-pack），不是電腦送來的原文。 */
+    val tunePackErrorLocal: Boolean = false,
 )
 
-/** 同步被 XB 拒絕的原因（no-pairing、bad-code、unknown-device、auth、different-computer…）。 */
-class SyncRefusedException(val reason: String) : Exception(reason)
+/** 同步失敗的原因：XB 拒絕（no-pairing、bad-code、unknown-device、auth、different-computer…），或本機判斷的 unreachable、bad-reply、connection-lost。原本的例外在 cause。 */
+class SyncRefusedException(val reason: String, cause: Throwable? = null) : Exception(reason, cause)

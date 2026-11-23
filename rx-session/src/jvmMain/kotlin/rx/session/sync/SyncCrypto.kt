@@ -95,6 +95,10 @@ class SealedInputStream(private val inp: InputStream, key: ByteArray) : InputStr
     private var pos = 0
     private var seq = 0L
 
+    /** 從底層實際讀進來的位元組數（包括還沒收完的這一筆）：分得出「對方一個字都沒回」跟「回到一半斷掉」。 */
+    var rawBytesRead = 0L
+        private set
+
     private fun fill(): Boolean {
         while (pos >= cur.size) {
             val h = ByteArray(4)
@@ -102,13 +106,13 @@ class SealedInputStream(private val inp: InputStream, key: ByteArray) : InputStr
             while (got < 4) {
                 val r = inp.read(h, got, 4 - got)
                 if (r < 0) { if (got == 0) return false else throw EOFException("Truncated sync record") }
-                got += r
+                got += r; rawBytesRead += r
             }
             val n = (h[0].toInt() and 255) or ((h[1].toInt() and 255) shl 8) or ((h[2].toInt() and 255) shl 16) or ((h[3].toInt() and 255) shl 24)
             require(n in 16..(SealedOutputStream.CHUNK + 16)) { "Invalid sync record size" }
             val ct = ByteArray(n)
             var off = 0
-            while (off < n) { val r = inp.read(ct, off, n - off); if (r < 0) throw EOFException("Truncated sync record"); off += r }
+            while (off < n) { val r = inp.read(ct, off, n - off); if (r < 0) throw EOFException("Truncated sync record"); off += r; rawBytesRead += r }
             cur = XbCrypto.aesGcmDecrypt(k, SealedOutputStream.nonce(seq++), ct)
             pos = 0
         }

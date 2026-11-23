@@ -55,6 +55,7 @@
     <string name="conn_xtune_kicked">XTune will be disconnected while ReX is connected.</string>
     <string name="lan_needed">ReX needs the Nearby devices permission to reach the ECU and your computer over Wi-Fi.</string>
     <string name="lan_allow">Allow</string>
+    <string name="lan_settings">Open settings</string>
     <string name="conn_password">ECU password (blank = factory default 888888)</string>
     <string name="conn_channels">Channels to show</string>
     <string name="conn_new_group">+ New channel group</string>
@@ -263,6 +264,9 @@
     <string name="sync_err_bad_code">Wrong pairing code.</string>
     <string name="sync_err_forgotten">The computer doesn\'t know this phone any more. Unpair and pair again.</string>
     <string name="sync_err_other_pc">That address is a different computer. Unpair to pair with it.</string>
+    <string name="sync_err_unreachable">Can\'t reach the computer. Check the address, and that XenoBrex is open on the same Wi-Fi.</string>
+    <string name="sync_err_bad_reply">The computer didn\'t answer like XenoBrex. Check that the address is the computer running XenoBrex.</string>
+    <string name="sync_err_lost">The connection to the computer dropped. Try again.</string>
     <string name="sync_err_other">Sync failed: %1$s</string>
     <!-- 即時調校（1.0） -->
     <string name="tune_mode_features">Features</string>
@@ -271,6 +275,7 @@
     <string name="tune_page_tables">Plain table view for now</string>
     <string name="tune_range_hint">Range %1$s – %2$s</string>
     <string name="sync_tunepack_none">No tune pack: %1$s</string>
+    <string name="sync_tunepack_closed">the computer closed the connection. If this keeps happening, update XenoBrex on the computer.</string>
     <string name="sync_tunepack_ok">Tune pack updated.</string>
     <string name="tune_title">Live tuning</string>
     <string name="tune_intro">When you start, ReX reads the whole ECU and keeps a backup you can write back with one tap.</string>

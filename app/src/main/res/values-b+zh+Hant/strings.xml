@@ -49,6 +49,7 @@
     <string name="conn_xtune_kicked">連線時 XTune 會被斷開。</string>
     <string name="lan_needed">ReX 需要「附近的裝置」權限，才能透過 WiFi 連 ECU 和電腦。</string>
     <string name="lan_allow">允許</string>
+    <string name="lan_settings">打開設定</string>
     <string name="conn_password">ECU 密碼（留空＝出廠預設 888888）</string>
     <string name="conn_channels">要看的通道</string>
     <string name="conn_new_group">＋ 新增通道組</string>
@@ -246,6 +247,9 @@
     <string name="sync_err_bad_code">配對碼不對。</string>
     <string name="sync_err_forgotten">電腦已經不認得這支手機了。取消配對再配一次。</string>
     <string name="sync_err_other_pc">這個位址是另一台電腦。要換的話先取消配對。</string>
+    <string name="sync_err_unreachable">連不到電腦。請確認位址，以及 XenoBrex 開著、在同一個 Wi-Fi。</string>
+    <string name="sync_err_bad_reply">電腦的回應不像 XenoBrex。請確認這個位址是開著 XenoBrex 的電腦。</string>
+    <string name="sync_err_lost">跟電腦的連線斷了，請再試一次。</string>
     <string name="sync_err_other">同步失敗：%1$s</string>
     <!-- 即時調校（1.0） -->
     <string name="tune_mode_features">功能</string>
@@ -254,6 +258,7 @@
     <string name="tune_page_tables">先用一般表格編輯</string>
     <string name="tune_range_hint">範圍 %1$s～%2$s</string>
     <string name="sync_tunepack_none">沒有調校包：%1$s</string>
+    <string name="sync_tunepack_closed">電腦關閉了連線。如果一直這樣，請更新電腦上的 XenoBrex。</string>
     <string name="sync_tunepack_ok">調校包已更新。</string>
     <string name="tune_title">即時調校</string>
     <string name="tune_intro">開始時 ReX 會整份讀回 ECU 並存一份備份，隨時可以一鍵寫回。</string>

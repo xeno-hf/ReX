@@ -50,7 +50,17 @@ object SyncWire {
     /** 握手完的連線。 */
     class Opened(val peer: Peer, val mode: String, val input: InputStream, val output: OutputStream)
 
-    class SyncRefused(val reason: String) : Exception(reason)
+    /** [reason] 是對方送來的 err，或下面三個本機判斷的原因；原本的例外在 [cause]（記日誌用，不給使用者看）。 */
+    class SyncRefused(val reason: String, cause: Throwable? = null) : Exception(reason, cause)
+
+    /** 連不上（位址錯、電腦沒開、不在同一個網路）。 */
+    const val UNREACHABLE = "unreachable"
+    /** 連上了，但回應不是 XB 該有的（不是 XB、公鑰壞掉、證明不對）。 */
+    const val BAD_REPLY = "bad-reply"
+    /** 握手或傳輸到一半斷線、被對方收線。 */
+    const val CONNECTION_LOST = "connection-lost"
+    /** 要調校包時電腦還沒回就收線：舊版 XB 不認得這個請求，或配對剛被刪掉（前面傳的照算）。 */
+    const val CLOSED_ON_TUNE_PACK = "closed-on-tune-pack"
 
     fun newId(): String = SyncCrypto.hex(SyncCrypto.randomBytes(12))
 

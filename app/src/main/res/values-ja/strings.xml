@@ -49,6 +49,7 @@
     <string name="conn_xtune_kicked">接続中は XTune の接続が切れます。</string>
     <string name="lan_needed">Wi-Fi で ECU やパソコンに接続するには「付近のデバイス」の権限が必要です。</string>
     <string name="lan_allow">許可</string>
+    <string name="lan_settings">設定を開く</string>
     <string name="conn_password">ECU パスワード（空欄＝工場出荷時 888888）</string>
     <string name="conn_channels">表示するチャンネル</string>
     <string name="conn_new_group">＋ チャンネルグループを追加</string>
@@ -246,6 +247,9 @@
     <string name="sync_err_bad_code">ペアリングコードが違います。</string>
     <string name="sync_err_forgotten">パソコンがこのスマホを覚えていません。解除してペアリングし直してください。</string>
     <string name="sync_err_other_pc">このアドレスは別のパソコンです。切り替えるには先にペアリングを解除してください。</string>
+    <string name="sync_err_unreachable">パソコンに接続できません。アドレスと、XenoBrex が同じ Wi-Fi で開いているか確認してください。</string>
+    <string name="sync_err_bad_reply">パソコンの応答が XenoBrex のものではありません。アドレスが XenoBrex を開いているパソコンか確認してください。</string>
+    <string name="sync_err_lost">パソコンとの接続が切れました。もう一度お試しください。</string>
     <string name="sync_err_other">同期に失敗しました：%1$s</string>
     <!-- 即時調校（1.0） -->
     <string name="tune_mode_features">機能</string>
@@ -254,6 +258,7 @@
     <string name="tune_page_tables">当面は通常の表で編集</string>
     <string name="tune_range_hint">範囲 %1$s～%2$s</string>
     <string name="sync_tunepack_none">チューニングパックなし：%1$s</string>
+    <string name="sync_tunepack_closed">パソコンが接続を閉じました。繰り返す場合は、パソコンの XenoBrex を更新してください。</string>
     <string name="sync_tunepack_ok">チューニングパックを更新しました。</string>
     <string name="tune_title">リアルタイム調整</string>
     <string name="tune_intro">開始時に ECU 全体を読み込んでバックアップを保存し、ワンタップで書き戻せます。</string>

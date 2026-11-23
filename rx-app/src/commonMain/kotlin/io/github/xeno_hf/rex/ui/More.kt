@@ -314,7 +314,7 @@ private fun SyncSettings() {
                     is Repo.SyncStatus.Done -> stringResource(R.string.sync_done, x.outcome.uploaded.size, x.outcome.alreadyThere) +
                         (if (x.outcome.failed.isNotEmpty()) "  " + stringResource(R.string.sync_failed_n, x.outcome.failed.size) else "") +
                         (if (x.defsSaved) "  " + stringResource(R.string.sync_defs_ok) else x.outcome.defsError?.let { "  " + stringResource(R.string.sync_defs_none, it) } ?: "") +
-                        (if (x.tunePackSaved) "  " + stringResource(R.string.sync_tunepack_ok) else x.outcome.tunePackError?.let { "  " + stringResource(R.string.sync_tunepack_none, it) } ?: "")
+                        (if (x.tunePackSaved) "  " + stringResource(R.string.sync_tunepack_ok) else x.outcome.tunePackError?.let { "  " + stringResource(R.string.sync_tunepack_none, tunePackReason(it, x.outcome.tunePackErrorLocal)) } ?: "")
                     is Repo.SyncStatus.Failed -> syncReason(x.reason)
                     else -> stringResource(R.string.sync_hint)
                 },
@@ -324,12 +324,23 @@ private fun SyncSettings() {
     }
 }
 
+/** 調校包要不到的原因：本機判斷的（[local]）換成說明，XB 送來的照原文。 */
 @Composable
-private fun syncReason(reason: String): String = when (reason) {
+internal fun tunePackReason(reason: String, local: Boolean): String = if (!local) reason else when (reason) {
+    "connection-lost" -> stringResource(R.string.sync_err_lost)
+    "closed-on-tune-pack" -> stringResource(R.string.sync_tunepack_closed)
+    else -> reason
+}
+
+@Composable
+internal fun syncReason(reason: String): String = when (reason) {
     "no-pairing" -> stringResource(R.string.sync_err_no_pairing)
     "bad-code" -> stringResource(R.string.sync_err_bad_code)
     "unknown-device", "auth" -> stringResource(R.string.sync_err_forgotten)
     "different-computer" -> stringResource(R.string.sync_err_other_pc)
+    "unreachable" -> stringResource(R.string.sync_err_unreachable)
+    "bad-reply" -> stringResource(R.string.sync_err_bad_reply)
+    "connection-lost" -> stringResource(R.string.sync_err_lost)
     "no-lan" -> stringResource(R.string.lan_needed)
     else -> stringResource(R.string.sync_err_other, reason)
 }

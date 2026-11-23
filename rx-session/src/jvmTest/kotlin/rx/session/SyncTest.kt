@@ -65,6 +65,8 @@ class SyncTest {
             return "{\"format\":\"rx-mapdefs-1\",\"c\":${request["c"]}}".toByteArray()
         }
         override fun log(line: String) { synchronized(logs) { logs += line } }
+        @Volatile var tunePackAction: (SyncWire.Peer) -> ByteArray = { throw UnsupportedOperationException("This computer does not provide tune packs") }
+        override fun tunePack(peer: SyncWire.Peer, request: Map<String, String>): ByteArray = tunePackAction(peer)
     }
 
     private val host = Host()
@@ -89,6 +91,93 @@ class SyncTest {
         host.window = SyncWire.PairingWindow(code, System.currentTimeMillis() + 60_000)
         val pc = client().pair(rx.session.SyncCode.normalize(typed))
         assertEquals("Desktop", pc.name)
+    }
+
+    /** 連不上、回應不對、握手中被收線都換成畫面看得懂的原因（原本的例外在 cause）；收過壞公鑰之後照樣能配對。 */
+    @Test
+    fun failuresBecomeReasonsAndPairingStillWorksAfterABadKey() {
+        val loop = InetAddress.getLoopbackAddress()
+        val closed = java.net.ServerSocket(0, 1, loop).use { it.localPort }
+        val unreachable = assertFailsWith<SyncWire.SyncRefused> { SyncClient(loop.hostAddress, closed, phone).pair("ABCD2345") }
+        assertEquals(SyncWire.UNREACHABLE, unreachable.reason)
+        assertNotNull(unreachable.cause)
+        // 假電腦：第一次回不在曲線上的公鑰，第二次讀完就收線
+        java.net.ServerSocket(0, 2, loop).use { fake -> pairAfterBadReplies(fake) }
+        assertEquals("Desktop", pair().name)
+        // 位址的 port 超出範圍也是連不上，不是原始例外
+        assertEquals(SyncWire.UNREACHABLE, assertFailsWith<SyncWire.SyncRefused> { SyncClient(loop.hostAddress, 65536, phone).pair("ABCD2345") }.reason)
+    }
+
+    /** 電腦沒回任何東西就收線（舊版 XB 或配對剛被刪，分不出來）＝closed-on-tune-pack；回到一半斷線、逾時＝斷線；拒絕照原因；完整回覆照收。 */
+    @Test
+    fun tunePackReplyKinds() {
+        fun ask(inp: InputStream) = SyncClient.requestTunePack(inp, ByteArrayOutputStream(), mapOf("c" to "17")).let { Triple(it.data, it.error, it.local) }
+        fun ask(reply: ByteArray) = ask(ByteArrayInputStream(reply))
+        fun frame(type: Byte, body: ByteArray) = ByteArrayOutputStream().also { rx.session.sync.SyncOps.send(it, type, body) }.toByteArray()
+        assertEquals(Triple(null, SyncWire.CLOSED_ON_TUNE_PACK, true), ask(ByteArray(0)))
+        val full = frame(rx.session.sync.SyncOps.TUNEPACK_REPLY, ByteArray(100) { it.toByte() })
+        assertEquals(Triple(null, SyncWire.CONNECTION_LOST, true), ask(full.copyOf(full.size - 10)))
+        assertEquals(Triple(null, SyncWire.CONNECTION_LOST, true), ask(full.copyOf(3)))
+        assertContentEquals(ByteArray(100) { it.toByte() }, assertNotNull(ask(full).first))
+        // 電腦送來的原因照原文、標成不是本機判斷，即使字面跟本機代碼一樣
+        assertEquals(Triple(null, "connection-lost", false), ask(frame(rx.session.sync.SyncOps.ERROR, "connection-lost".toByteArray())))
+        val timeout = object : InputStream() { override fun read(): Int = throw java.net.SocketTimeoutException("Read timed out") }
+        assertEquals(Triple(null, SyncWire.CONNECTION_LOST, true), ask(timeout))
+        val reset = object : InputStream() { override fun read(): Int = throw java.net.SocketException("Connection reset") }
+        assertEquals(Triple(null, SyncWire.CLOSED_ON_TUNE_PACK, true), ask(reset))
+        // 透過加密串流：第一筆密文收到一部分（標頭一半、密文一半）才被 reset ＝ 斷線；一個字都沒收到就 reset ＝ 收線
+        val key = ByteArray(32) { 7 }
+        val sealed = ByteArrayOutputStream().also { o -> SealedOutputStream(o, key).use { it.write(full) } }.toByteArray()
+        fun resetAfter(n: Int) = object : InputStream() {
+            var i = 0
+            override fun read(): Int = if (i < n) sealed[i++].toInt() and 255 else throw java.net.SocketException("Connection reset")
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (i >= n) throw java.net.SocketException("Connection reset")
+                val k = minOf(len, n - i); sealed.copyInto(b, off, i, i + k); i += k; return k
+            }
+        }
+        assertEquals(Triple(null, SyncWire.CLOSED_ON_TUNE_PACK, true), ask(SealedInputStream(resetAfter(0), key)))
+        assertEquals(Triple(null, SyncWire.CONNECTION_LOST, true), ask(SealedInputStream(resetAfter(2), key)))
+        assertEquals(Triple(null, SyncWire.CONNECTION_LOST, true), ask(SealedInputStream(resetAfter(20), key)))
+        assertContentEquals(ByteArray(100) { it.toByte() }, assertNotNull(ask(SealedInputStream(resetAfter(sealed.size), key)).first))
+    }
+
+    /** 真的 SyncServer：要調校包時配對剛被刪掉，電腦沒回就收線（跟舊版 XB 一樣）。前面傳的錄製照算；電腦送來的原因照原文、連線照常結束。 */
+    @Test
+    fun closeOnTunePackKeepsEarlierUploads() {
+        val pc = pair()
+        val tmp = Files.createTempDirectory("sync").toFile()
+        val pack: (String) -> File? = { name -> File(tmp, "$name.xbl").also { it.writeBytes(byteArrayOf(1, 2, 3)) } }
+        host.tunePackAction = { throw IllegalStateException("connection-lost") }
+        val sent = client().sync(pc, listOf("ride_a"), pack, null, mapOf("c" to "17"))
+        assertEquals(listOf("ride_a"), sent.uploaded)
+        assertEquals("connection-lost", sent.tunePackError)
+        assertEquals(false, sent.tunePackErrorLocal)
+        host.tunePackAction = { peer -> synchronized(host.peers) { host.peers.remove(peer.id) }; byteArrayOf(1) }
+        val closed = client().sync(pc, listOf("ride_a", "ride_b"), pack, null, mapOf("c" to "17"))
+        assertEquals(listOf("ride_b"), closed.uploaded)
+        assertEquals(1, closed.alreadyThere)
+        assertEquals(SyncWire.CLOSED_ON_TUNE_PACK, closed.tunePackError)
+        assertEquals(true, closed.tunePackErrorLocal)
+        tmp.deleteRecursively()
+    }
+
+    private fun pairAfterBadReplies(fake: java.net.ServerSocket) {
+        val t = Thread {
+            for (round in 0 until 2) fake.accept().use { s ->
+                val inp = s.getInputStream(); val out = s.getOutputStream()
+                inp.readNBytes(SyncWire.MAGIC.size); SyncWire.readMsg(inp)
+                if (round == 0) {
+                    val epk = SyncCrypto.ecKeyPair().publicDer.also { it[it.size - 1] = (it[it.size - 1].toInt() xor 1).toByte() }
+                    SyncWire.writeMsg(out, linkedMapOf("op" to "pair", "id" to "a1b2c3d4e5f6a1b2c3d4e5f6", "name" to "Fake", "epk" to SyncCrypto.hex(epk), "sn" to "00"))
+                    runCatching { SyncWire.readMsg(inp) } // 等手機放棄、收線
+                }
+            }
+        }.apply { isDaemon = true; start() }
+        val fakeClient = SyncClient(fake.inetAddress.hostAddress, fake.localPort, phone)
+        assertEquals(SyncWire.BAD_REPLY, assertFailsWith<SyncWire.SyncRefused> { fakeClient.pair("ABCD2345") }.reason)
+        assertEquals(SyncWire.CONNECTION_LOST, assertFailsWith<SyncWire.SyncRefused> { fakeClient.pair("ABCD2345") }.reason)
+        t.join(5_000)
     }
 
     @Test
@@ -128,7 +217,9 @@ class SyncTest {
     fun storageFailureFailsThePairingOnThePhone() {
         host.beforeStore = { throw java.io.IOException("disk full") }
         host.window = SyncWire.PairingWindow("ABCD2345", System.currentTimeMillis() + 60_000)
-        assertFailsWith<java.io.IOException> { client().pair("ABCD2345") }
+        val lost = assertFailsWith<SyncWire.SyncRefused> { client().pair("ABCD2345") }
+        assertEquals(SyncWire.CONNECTION_LOST, lost.reason)
+        assertTrue(lost.cause is java.io.IOException)
         assertEquals(null, host.findPeer("0123456789abcdef01234567"))
         host.beforeStore = {}
         assertEquals("no-pairing", assertFailsWith<SyncWire.SyncRefused> { client().pair("ABCD2345") }.reason)
@@ -176,6 +267,25 @@ class SyncTest {
         assertTrue(r2.uploaded.isEmpty() && r2.defs == null)
         assertEquals("No definitions for AMX2", r2.defsError)
         tmp.deleteRecursively()
+    }
+
+    /** 錄製檔打不開：只算這筆失敗，其他照傳，不會被當成斷線。 */
+    @Test
+    fun unreadableRideFailsOnlyThatRide() {
+        val pc = pair()
+        val tmp = Files.createTempDirectory("sync").toFile()
+        try {
+            val locked = File(tmp, "ride_x.xbl").also { it.writeBytes(byteArrayOf(1, 2)); it.setReadable(false, false) }
+            // root 或不支援權限的檔案系統：測不了，回報成略過而不是通過
+            org.junit.jupiter.api.Assumptions.assumeFalse(locked.canRead(), "cannot make a file unreadable here")
+            val r = client().sync(pc, listOf("ride_x", "ride_y"), { name ->
+                if (name == "ride_x") locked else File(tmp, "$name.xbl").also { it.writeBytes(byteArrayOf(3, 4)) }
+            }, null)
+            assertEquals(listOf("ride_y"), r.uploaded)
+            assertEquals("pack failed", r.failed["ride_x"])
+        } finally {
+            tmp.deleteRecursively()
+        }
     }
 
     @Test

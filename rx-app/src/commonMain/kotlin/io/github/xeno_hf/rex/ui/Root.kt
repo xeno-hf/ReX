@@ -160,7 +160,8 @@ fun RxRoot(startTab: String? = null) {
     // 舊的頁籤名稱（scope、channels）現在是「監控」裡的分頁
     var tab by rememberSaveable { mutableStateOf(Tab.entries.firstOrNull { it.name.equals(startTab, ignoreCase = true) }
         ?: Tab.Monitor.takeIf { startTab.equals("scope", true) || startTab.equals("channels", true) } ?: Tab.Dash) }
-    var showConnect by remember { mutableStateOf(false) }
+    // 要權限時 Activity 可能被重建：對話框（和它的權限 launcher）要回到畫面上才收得到結果
+    var showConnect by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(target) { repo.platform.keepScreenOn(target != null && repo.keepScreenOn) }
 
@@ -458,7 +459,7 @@ fun LocalNetworkNotice(lan: LocalNetworkAccess) {
     if (lan.granted) return
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(stringResource(R.string.lan_needed), color = RxColors.warn, fontSize = 12.sp, modifier = Modifier.weight(1f))
-        TextButton(onClick = lan.request) { Text(stringResource(R.string.lan_allow)) }
+        TextButton(onClick = lan.request) { Text(stringResource(if (lan.needsSettings) R.string.lan_settings else R.string.lan_allow)) }
     }
 }
 
