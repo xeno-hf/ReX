@@ -226,7 +226,7 @@ class SyncServer(
                         host.log("Sync: no tune pack for ${o.peer.name}: ${e.message}")
                     }
                 }
-                SyncOps.END -> return
+                SyncOps.END -> { host.log("Sync: ${o.peer.name} finished"); return }
                 else -> error("Unknown sync request")
             }
         }

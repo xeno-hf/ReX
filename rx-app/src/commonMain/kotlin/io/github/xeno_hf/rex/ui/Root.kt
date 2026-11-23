@@ -459,7 +459,7 @@ fun LocalNetworkNotice(lan: LocalNetworkAccess) {
     if (lan.granted) return
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(stringResource(R.string.lan_needed), color = RxColors.warn, fontSize = 12.sp, modifier = Modifier.weight(1f))
-        TextButton(onClick = lan.request) { Text(stringResource(if (lan.needsSettings) R.string.lan_settings else R.string.lan_allow)) }
+        TextButton(onClick = if (lan.needsSettings) lan.openSettings else lan.request) { Text(stringResource(if (lan.needsSettings) R.string.lan_settings else R.string.lan_allow)) }
     }
 }
 

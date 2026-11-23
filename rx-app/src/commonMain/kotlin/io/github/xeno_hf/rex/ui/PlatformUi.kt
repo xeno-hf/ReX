@@ -8,9 +8,10 @@ expect fun rememberFilePicker(onPicked: (name: String?, bytes: ByteArray) -> Uni
 
 /**
  * 區網權限（Android 17 起的「附近的裝置」）。[granted] 回到 App 時會重新檢查；[request] 跳系統詢問。
- * 系統已經不再詢問時 [needsSettings]：按鈕改成「打開設定」，[request] 帶去 App 設定頁（一定是使用者自己按的）。
+ * 系統已經不再詢問時 [needsSettings]：說明的按鈕改成「打開設定」，按了才用 [openSettings] 帶去 App 設定頁；
+ * 這時 [request] 什麼都不做（連線、同步這些按鈕不會把人帶離 App，說明就在旁邊）。
  */
-class LocalNetworkAccess(val granted: Boolean, val request: () -> Unit, val needsSettings: Boolean = false)
+class LocalNetworkAccess(val granted: Boolean, val request: () -> Unit, val needsSettings: Boolean = false, val openSettings: () -> Unit = {})
 
 /** 不需要問的平台一律 granted。 */
 @Composable

@@ -74,13 +74,14 @@ actual fun rememberLocalNetworkAccess(): LocalNetworkAccess {
     }
     return LocalNetworkAccess(granted, {
         if (Build.VERSION.SDK_INT < 37) granted = platform.hasLocalNetwork()
-        else if (needsSettings && activity != null)
-            activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.packageName, null)))
-        else {
+        // 已經永久拒絕：系統不會再問，只有說明上的「打開設定」帶去設定頁
+        else if (!needsSettings) {
             rationaleBefore = activity?.shouldShowRequestPermissionRationale(LOCAL_NETWORK) == true
             l.launch(arrayOf(LOCAL_NETWORK))
         }
-    }, needsSettings)
+    }, needsSettings, {
+        activity?.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.packageName, null)))
+    })
 }
 
 private const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"

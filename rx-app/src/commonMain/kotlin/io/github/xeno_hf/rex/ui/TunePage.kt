@@ -107,8 +107,11 @@ fun TuneScreen() {
                 Text(stringResource(R.string.tune_no_pack, s.mapType ?: "?", s.tableId ?: "?"), color = RxColors.warn, fontSize = 13.sp, lineHeight = 19.sp)
                 val pc by repo.syncComputer.collectAsState()
                 val sync by repo.syncStatus.collectAsState()
+                // 沒有區網權限：跟設定頁的同步一樣，先顯示說明，按同步改成要權限
+                val lan = rememberLocalNetworkAccess()
+                if (pc != null) LocalNetworkNotice(lan)
                 if (pc != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(enabled = sync !is io.github.xeno_hf.rex.Repo.SyncStatus.Running, onClick = { repo.syncNow() }) { Text(stringResource(R.string.sync_now)) }
+                    OutlinedButton(enabled = sync !is io.github.xeno_hf.rex.Repo.SyncStatus.Running, onClick = { if (lan.granted) repo.syncNow() else lan.request() }) { Text(stringResource(R.string.sync_now)) }
                     when (val x = sync) {
                         is io.github.xeno_hf.rex.Repo.SyncStatus.Running -> Text(stringResource(R.string.sync_running, x.done, x.total), color = RxColors.muted, fontSize = 12.sp)
                         is io.github.xeno_hf.rex.Repo.SyncStatus.Done -> Text(if (x.tunePackSaved) stringResource(R.string.sync_tunepack_ok) else stringResource(R.string.sync_tunepack_none, x.outcome.tunePackError?.let { tunePackReason(it, x.outcome.tunePackErrorLocal) } ?: "—"), color = RxColors.muted, fontSize = 12.sp)

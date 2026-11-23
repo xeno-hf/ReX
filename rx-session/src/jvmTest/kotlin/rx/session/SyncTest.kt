@@ -52,12 +52,12 @@ class SyncTest {
             liveDone.countDown()
             return liveEnded
         }
-        override fun missingRides(peer: SyncWire.Peer, names: List<String>) = names.filter { it !in rides }
+        override fun missingRides(peer: SyncWire.Peer, names: List<String>) = synchronized(rides) { names.filter { it !in rides } }
         override fun storeRide(peer: SyncWire.Peer, name: String, input: InputStream, length: Long): ByteArray {
             require(!name.contains('/')) { "bad name" }
             val b = input.readBytes()
             check(b.size.toLong() == length)
-            rides[name] = b
+            synchronized(rides) { rides[name] = b }
             return SyncCrypto.sha256(b)
         }
         override fun defs(peer: SyncWire.Peer, request: Map<String, String>): ByteArray {
@@ -97,10 +97,13 @@ class SyncTest {
     @Test
     fun failuresBecomeReasonsAndPairingStillWorksAfterABadKey() {
         val loop = InetAddress.getLoopbackAddress()
-        val closed = java.net.ServerSocket(0, 1, loop).use { it.localPort }
-        val unreachable = assertFailsWith<SyncWire.SyncRefused> { SyncClient(loop.hostAddress, closed, phone).pair("ABCD2345") }
-        assertEquals(SyncWire.UNREACHABLE, unreachable.reason)
-        assertNotNull(unreachable.cause)
+        // 綁住但不 listen 的埠：一定連不上，測試期間也不會被別人拿去用
+        java.net.Socket().use { bound ->
+            bound.bind(java.net.InetSocketAddress(loop, 0))
+            val unreachable = assertFailsWith<SyncWire.SyncRefused> { SyncClient(loop.hostAddress, bound.localPort, phone).pair("ABCD2345") }
+            assertEquals(SyncWire.UNREACHABLE, unreachable.reason)
+            assertNotNull(unreachable.cause)
+        }
         // 假電腦：第一次回不在曲線上的公鑰，第二次讀完就收線
         java.net.ServerSocket(0, 2, loop).use { fake -> pairAfterBadReplies(fake) }
         assertEquals("Desktop", pair().name)
@@ -147,19 +150,76 @@ class SyncTest {
     fun closeOnTunePackKeepsEarlierUploads() {
         val pc = pair()
         val tmp = Files.createTempDirectory("sync").toFile()
-        val pack: (String) -> File? = { name -> File(tmp, "$name.xbl").also { it.writeBytes(byteArrayOf(1, 2, 3)) } }
-        host.tunePackAction = { throw IllegalStateException("connection-lost") }
-        val sent = client().sync(pc, listOf("ride_a"), pack, null, mapOf("c" to "17"))
-        assertEquals(listOf("ride_a"), sent.uploaded)
-        assertEquals("connection-lost", sent.tunePackError)
-        assertEquals(false, sent.tunePackErrorLocal)
-        host.tunePackAction = { peer -> synchronized(host.peers) { host.peers.remove(peer.id) }; byteArrayOf(1) }
-        val closed = client().sync(pc, listOf("ride_a", "ride_b"), pack, null, mapOf("c" to "17"))
-        assertEquals(listOf("ride_b"), closed.uploaded)
-        assertEquals(1, closed.alreadyThere)
-        assertEquals(SyncWire.CLOSED_ON_TUNE_PACK, closed.tunePackError)
-        assertEquals(true, closed.tunePackErrorLocal)
-        tmp.deleteRecursively()
+        try {
+            val pack: (String) -> File? = { name -> File(tmp, "$name.xbl").also { it.writeBytes(byteArrayOf(1, 2, 3)) } }
+            host.tunePackAction = { throw IllegalStateException("connection-lost") }
+            val sent = client().sync(pc, listOf("ride_a"), pack, null, mapOf("c" to "17"))
+            assertEquals(listOf("ride_a"), sent.uploaded)
+            assertEquals("connection-lost", sent.tunePackError)
+            assertEquals(false, sent.tunePackErrorLocal)
+            // 電腦送來的原因不影響收尾：手機照樣送結束訊息
+            assertTrue(waitFor { synchronized(host.logs) { "Sync: Phone finished" in host.logs } }, "server got END: ${synchronized(host.logs) { host.logs.toList() }}")
+            host.tunePackAction = { peer -> synchronized(host.peers) { host.peers.remove(peer.id) }; byteArrayOf(1) }
+            val closed = client().sync(pc, listOf("ride_a", "ride_b"), pack, null, mapOf("c" to "17"))
+            assertEquals(listOf("ride_b"), closed.uploaded)
+            assertEquals(1, closed.alreadyThere)
+            assertEquals(SyncWire.CLOSED_ON_TUNE_PACK, closed.tunePackError)
+            assertEquals(true, closed.tunePackErrorLocal)
+        } finally {
+            tmp.deleteRecursively()
+        }
+    }
+
+    /** onProgress 丟的 I/O 例外是呼叫端自己的錯，原樣往外丟，不算斷線。 */
+    @Test
+    fun progressCallbackErrorsAreNotConnectionLost() {
+        val pc = pair()
+        val tmp = Files.createTempDirectory("sync").toFile()
+        try {
+            val boom = java.io.IOException("progress storage full")
+            val thrown = assertFailsWith<java.io.IOException> {
+                client().sync(pc, listOf("ride_p"), { name -> File(tmp, "$name.xbl").also { it.writeBytes(byteArrayOf(5)) } }, null) { _, _, _ -> throw boom }
+            }
+            assertTrue(thrown === boom, "got $thrown")
+        } finally {
+            tmp.deleteRecursively()
+        }
+    }
+
+    /** 錄製檔送到一半讀不下去：本機錯誤（UncheckedIOException），不是斷線；電腦不會存下半個檔，之後照常同步。 */
+    @Test
+    fun rideReadFailureMidUploadIsALocalError() {
+        val pc = pair()
+        val tmp = Files.createTempDirectory("sync").toFile()
+        try {
+            val pack: (String) -> File? = { name -> File(tmp, "$name.xbl").also { it.writeBytes(ByteArray(100_000) { i -> i.toByte() }) } }
+            val c = client()
+            c.openRide = { f ->
+                object : java.io.FileInputStream(f) {
+                    var left = 40_000
+                    override fun read(b: ByteArray, off: Int, len: Int): Int {
+                        if (left <= 0) throw java.io.IOException("disk read failed")
+                        val n = super.read(b, off, minOf(len, left)); left -= n; return n
+                    }
+                }
+            }
+            val e = assertFailsWith<java.io.UncheckedIOException> { c.sync(pc, listOf("ride_m"), pack, null) }
+            assertEquals("disk read failed", e.cause?.message)
+            // 電腦那邊處理完這條斷掉的連線再看：連收線時也不能存下半個檔
+            assertTrue(waitFor { server.activeSessions(phone.id) == 0 }, "server session did not end")
+            assertEquals(null, synchronized(host.rides) { host.rides["ride_m"] })
+            val again = client().sync(pc, listOf("ride_m"), pack, null)
+            assertEquals(listOf("ride_m"), again.uploaded)
+            assertEquals(100_000, synchronized(host.rides) { host.rides["ride_m"] }?.size)
+        } finally {
+            tmp.deleteRecursively()
+        }
+    }
+
+    private fun waitFor(timeoutMs: Long = 5_000, cond: () -> Boolean): Boolean {
+        val end = System.nanoTime() + timeoutMs * 1_000_000
+        while (System.nanoTime() < end) { if (cond()) return true; Thread.sleep(10) }
+        return cond()
     }
 
     private fun pairAfterBadReplies(fake: java.net.ServerSocket) {
@@ -252,7 +312,7 @@ class SyncTest {
     @Test
     fun uploadsOnlyMissingRidesAndFetchesDefs() {
         val pc = pair()
-        host.rides["ride_old"] = byteArrayOf(1)
+        synchronized(host.rides) { host.rides["ride_old"] = byteArrayOf(1) }
         val tmp = Files.createTempDirectory("sync").toFile()
         val payload = ByteArray(200_000) { (it * 31).toByte() }
         val r = client().sync(pc, listOf("ride_old", "ride_new"), { name ->
@@ -260,7 +320,7 @@ class SyncTest {
         }, mapOf("map_type" to "AMX", "c" to "17"))
         assertEquals(listOf("ride_new"), r.uploaded)
         assertEquals(1, r.alreadyThere)
-        assertContentEquals(payload, host.rides["ride_new"])
+        assertContentEquals(payload, synchronized(host.rides) { host.rides["ride_new"] })
         assertEquals("{\"format\":\"rx-mapdefs-1\",\"c\":17}", String(r.defs!!))
         // 給不出定義包：照樣同步錄製，只回原因
         val r2 = client().sync(pc, listOf("ride_new"), { null }, mapOf("map_type" to "AMX2"))

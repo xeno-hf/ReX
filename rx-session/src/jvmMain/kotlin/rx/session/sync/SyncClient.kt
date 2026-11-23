@@ -73,8 +73,20 @@ class SyncClient(private val host: String, private val port: Int, private val me
     ): Result = socket().use { s ->
         s.soTimeout = 120_000
         val o = handshake { SyncWire.connectClient(s.getInputStream(), s.getOutputStream().buffered(1 shl 15), me, server, SyncWire.MODE_SYNC) }
-        try { transfer(o, rides, pack, defsRequest, tunePackRequest, onProgress) } catch (e: java.io.IOException) { throw SyncWire.SyncRefused(SyncWire.CONNECTION_LOST, e) }
+        // 只有連線的 I/O 錯誤算斷線；呼叫端的 onProgress 丟出來的照原樣往外丟
+        val progress: (Int, Int, String) -> Unit = { done, total, name ->
+            try { onProgress(done, total, name) } catch (e: java.io.IOException) { throw CallbackFailed(e) }
+        }
+        try { transfer(o, rides, pack, defsRequest, tunePackRequest, progress) }
+        catch (e: CallbackFailed) { throw e.io }
+        catch (e: java.io.IOException) { throw SyncWire.SyncRefused(SyncWire.CONNECTION_LOST, e) }
     }
+
+    /** 把 onProgress 的 I/O 例外帶過 [transfer]，不讓它被當成斷線。 */
+    private class CallbackFailed(val io: java.io.IOException) : RuntimeException(io)
+
+    /** 打開要上傳的錄製檔；測試用來重播讀到一半失敗。 */
+    internal var openRide: (File) -> java.io.FileInputStream = { java.io.FileInputStream(it) }
 
     private fun transfer(
         o: SyncWire.Opened,
@@ -96,7 +108,7 @@ class SyncClient(private val host: String, private val port: Int, private val me
             if (f == null || !f.isFile) { failed[name] = "pack failed"; return@forEachIndexed }
             try {
                 // 先打開檔案、從打開的檔案拿長度，再送標頭：打不開或拿不到長度只算這筆失敗，連線照常
-                val file = try { f.inputStream() } catch (e: java.io.IOException) { failed[name] = "pack failed"; return@forEachIndexed }
+                val file = try { openRide(f) } catch (e: java.io.IOException) { failed[name] = "pack failed"; return@forEachIndexed }
                 val declared = try { file.channel.size() } catch (e: java.io.IOException) {
                     runCatching { file.close() }; failed[name] = "pack failed"; return@forEachIndexed
                 }

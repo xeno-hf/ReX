@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.xeno_hf.rex"
         minSdk = 29
         targetSdk = 37
-        versionCode = 23
-        versionName = "1.0.2"
+        versionCode = 24
+        versionName = "1.0.3"
     }
 
     // 正式簽章：只從本機 ~/.config/rx/release.properties 讀，不入庫；沒有就用 debug 簽
