@@ -53,6 +53,8 @@
     <string name="conn_find">Find automatically</string>
     <string name="conn_not_found">Bike not found. Make sure the phone and the bike are on the same WiFi.</string>
     <string name="conn_xtune_kicked">XTune will be disconnected while ReX is connected.</string>
+    <string name="lan_needed">ReX needs the Nearby devices permission to reach the ECU and your computer over Wi-Fi.</string>
+    <string name="lan_allow">Allow</string>
     <string name="conn_password">ECU password (blank = factory default 888888)</string>
     <string name="conn_channels">Channels to show</string>
     <string name="conn_new_group">+ New channel group</string>

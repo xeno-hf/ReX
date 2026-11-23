@@ -47,6 +47,8 @@
     <string name="conn_find">自动寻找</string>
     <string name="conn_not_found">没找到车子。请确认手机跟车子连在同一个 WiFi。</string>
     <string name="conn_xtune_kicked">连接时 XTune 会被断开。</string>
+    <string name="lan_needed">ReX 需要“附近的设备”权限，才能通过 WiFi 连接 ECU 和电脑。</string>
+    <string name="lan_allow">允许</string>
     <string name="conn_password">ECU 密码（留空＝出厂默认 888888）</string>
     <string name="conn_channels">要看的通道</string>
     <string name="conn_new_group">＋ 添加通道组</string>

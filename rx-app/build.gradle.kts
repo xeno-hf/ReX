@@ -10,13 +10,13 @@ plugins {
 
 // Mac 上只建 iOS 時不需要 Android SDK：-Prx.iosOnly=true 就不套 Android 外掛
 val iosOnly = providers.gradleProperty("rx.iosOnly").isPresent
-if (!iosOnly) apply(plugin = "com.android.library")
+if (!iosOnly) apply(plugin = "com.android.kotlin.multiplatform.library")
 
 // 字串表：唯一正本是 app/src/main/res/values*/strings.xml（Android 清單／通知也用它）。
 // 這裡在建置時轉成 Kotlin 表，iOS 與共用畫面用同一份；語言由 App 自己依系統偏好挑（繁／簡要看文字系統，不只看地區）。
 val stringsSrc = rootDir.resolve("app/src/main/res")
 val stringsOut = layout.buildDirectory.dir("generated/rxstrings/commonMain/kotlin")
-val genStrings by tasks.registering {
+val genStrings = tasks.register("genStrings") {
     inputs.dir(stringsSrc)
     outputs.dir(stringsOut)
     doLast {
@@ -57,11 +57,16 @@ val genStrings by tasks.registering {
 }
 
 kotlin {
-    if (!iosOnly) androidTarget {
+    // AGP 9 起 KMP 模組改用 com.android.kotlin.multiplatform.library，Android 目標設定寫在 kotlin { android {} } 裡
+    if (!iosOnly) extensions.configure<com.android.build.api.dsl.KotlinMultiplatformAndroidLibraryTarget>("android") {
+        namespace = "io.github.xeno_hf.rex.shared"
+        compileSdk { version = release(37) { minorApiLevel = 2 } }
+        minSdk = 29
+        androidResources.enable = true
         compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
     // iOS：整個共用層輸出成 RexKit.framework，給 rx-ios 的 Swift 進入點用
-    listOf(iosArm64()).forEach {
+    listOf(iosArm64(), iosSimulatorArm64()).forEach {
         it.binaries.framework { baseName = "RexKit"; isStatic = false }
     }
 
@@ -72,28 +77,18 @@ kotlin {
             dependencies {
                 api(project(":rx-session"))
                 api(project(":xb-link"))
-                api(compose.runtime)
-                api(compose.foundation)
-                api(compose.material3)
-                api(compose.ui)
-                implementation(compose.components.resources)
+                api("org.jetbrains.compose.runtime:runtime:1.12.2")
+                api("org.jetbrains.compose.foundation:foundation:1.12.2")
+                api("org.jetbrains.compose.material3:material3:1.9.0")
+                api("org.jetbrains.compose.ui:ui:1.12.2")
+                implementation("org.jetbrains.compose.components:components-resources:1.12.2")
                 implementation("org.jetbrains.compose.material:material-icons-core:1.7.3")
             }
         }
         if (!iosOnly) androidMain.dependencies {
-            implementation("androidx.activity:activity-compose:1.10.1")
-            implementation("androidx.core:core-ktx:1.15.0")
+            implementation("androidx.activity:activity-compose:1.13.0")
+            implementation("androidx.core:core-ktx:1.19.1")
         }
-    }
-}
-
-if (!iosOnly) extensions.configure<com.android.build.gradle.LibraryExtension>("android") {
-    namespace = "io.github.xeno_hf.rex.shared"
-    compileSdk = 35
-    defaultConfig { minSdk = 29 }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 

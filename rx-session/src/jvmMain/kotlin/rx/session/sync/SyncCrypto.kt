@@ -1,48 +1,36 @@
 package rx.session.sync
 
+import xb.crypto.XbCrypto
 import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
-import java.security.KeyFactory
-import java.security.KeyPair
-import java.security.KeyPairGenerator
-import java.security.MessageDigest
-import java.security.PublicKey
-import java.security.SecureRandom
-import java.security.spec.ECGenParameterSpec
-import java.security.spec.X509EncodedKeySpec
-import javax.crypto.Cipher
-import javax.crypto.KeyAgreement
-import javax.crypto.Mac
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
-/** 同步用的密碼學小工具：全部用 JDK／Android 內建的演算法（P-256、HMAC-SHA256、AES-256-GCM）。 */
+/** 同步用的密碼學小工具：P-256、HMAC-SHA256、AES-256-GCM（[XbCrypto]：JVM／Android＝JDK，iOS＝CryptoKit）。 */
 object SyncCrypto {
-    private val random = SecureRandom()
+    private val random = XbCrypto.secureRandom
 
-    fun randomBytes(n: Int): ByteArray = ByteArray(n).also(random::nextBytes)
+    fun randomBytes(n: Int): ByteArray = XbCrypto.randomBytes(n)
 
+    /** 每段前面加長度（u32 大端序），避免「ab|c」跟「a|bc」算出一樣的值。 */
     fun hmac(key: ByteArray, vararg parts: ByteArray): ByteArray {
-        val m = Mac.getInstance("HmacSHA256")
-        m.init(SecretKeySpec(key, "HmacSHA256"))
-        for (p in parts) { lenPrefix(m, p.size); m.update(p) }
-        return m.doFinal()
+        val buf = java.io.ByteArrayOutputStream()
+        for (p in parts) {
+            val n = p.size
+            buf.write(byteArrayOf((n ushr 24).toByte(), (n ushr 16).toByte(), (n ushr 8).toByte(), n.toByte()))
+            buf.write(p)
+        }
+        return XbCrypto.hmacSha256(key, buf.toByteArray())
     }
 
-    /** 每段前面加長度，避免「ab|c」跟「a|bc」算出一樣的值。 */
-    private fun lenPrefix(m: Mac, n: Int) = m.update(byteArrayOf((n ushr 24).toByte(), (n ushr 16).toByte(), (n ushr 8).toByte(), n.toByte()))
+    fun sha256(b: ByteArray): ByteArray = XbCrypto.sha256(b)
 
-    fun sha256(b: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(b)
+    fun same(a: ByteArray, b: ByteArray): Boolean = XbCrypto.constantTimeEquals(a, b)
 
-    fun same(a: ByteArray, b: ByteArray): Boolean = MessageDigest.isEqual(a, b)
+    /** 一次性的 P-256 金鑰對；公鑰用 [XbCrypto.EcdhKeyPair.publicDer]（X.509 DER，跟舊版 JDK 的 `public.encoded` 相同）。 */
+    fun ecKeyPair(): XbCrypto.EcdhKeyPair = XbCrypto.ecdhP256KeyPair()
 
-    fun ecKeyPair(): KeyPair = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1"), random) }.genKeyPair()
-
-    fun publicKey(der: ByteArray): PublicKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(der))
-
-    fun ecdh(mine: KeyPair, theirs: PublicKey): ByteArray =
-        KeyAgreement.getInstance("ECDH").apply { init(mine.private); doPhase(theirs, true) }.generateSecret()
+    /** [theirsDer]：對方的 X.509 DER 公鑰。 */
+    fun ecdh(mine: XbCrypto.EcdhKeyPair, theirsDer: ByteArray): ByteArray = XbCrypto.ecdhP256(mine, theirsDer)
 
     fun hex(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }
     fun unhex(s: String): ByteArray {
@@ -69,7 +57,7 @@ object SyncCrypto {
  * nonce＝方向固定的 4 bytes 0＋8 bytes 序號；兩個方向用不同金鑰，所以不會重複。
  */
 class SealedOutputStream(private val out: OutputStream, key: ByteArray) : OutputStream() {
-    private val k = SecretKeySpec(key, "AES")
+    private val k = key.copyOf()
     private val buf = java.io.ByteArrayOutputStream(CHUNK)
     private var seq = 0L
 
@@ -87,9 +75,7 @@ class SealedOutputStream(private val out: OutputStream, key: ByteArray) : Output
     override fun close() { flush(); out.close() }
 
     private fun emit() {
-        val c = Cipher.getInstance("AES/GCM/NoPadding")
-        c.init(Cipher.ENCRYPT_MODE, k, GCMParameterSpec(128, nonce(seq++)))
-        val ct = c.doFinal(buf.toByteArray())
+        val ct = XbCrypto.aesGcmEncrypt(k, nonce(seq++), buf.toByteArray())
         buf.reset()
         val n = ct.size
         out.write(byteArrayOf(n.toByte(), (n ushr 8).toByte(), (n ushr 16).toByte(), (n ushr 24).toByte()))
@@ -104,7 +90,7 @@ class SealedOutputStream(private val out: OutputStream, key: ByteArray) : Output
 
 /** [SealedOutputStream] 的另一頭。被竄改、截斷或順序不對就丟例外。 */
 class SealedInputStream(private val inp: InputStream, key: ByteArray) : InputStream() {
-    private val k = SecretKeySpec(key, "AES")
+    private val k = key.copyOf()
     private var cur = ByteArray(0)
     private var pos = 0
     private var seq = 0L
@@ -123,9 +109,7 @@ class SealedInputStream(private val inp: InputStream, key: ByteArray) : InputStr
             val ct = ByteArray(n)
             var off = 0
             while (off < n) { val r = inp.read(ct, off, n - off); if (r < 0) throw EOFException("Truncated sync record"); off += r }
-            val c = Cipher.getInstance("AES/GCM/NoPadding")
-            c.init(Cipher.DECRYPT_MODE, k, GCMParameterSpec(128, SealedOutputStream.nonce(seq++)))
-            cur = c.doFinal(ct)
+            cur = XbCrypto.aesGcmDecrypt(k, SealedOutputStream.nonce(seq++), ct)
             pos = 0
         }
         return true

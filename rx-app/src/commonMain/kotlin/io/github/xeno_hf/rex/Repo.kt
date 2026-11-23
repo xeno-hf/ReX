@@ -651,6 +651,7 @@ class Repo(val platform: Platform) {
 
     /** 用 XB 畫面上的配對碼配對。成功回 null，失敗回原因（給畫面顯示）。 */
     suspend fun pairWithComputer(code: String): String? {
+        if (!platform.hasLocalNetwork()) return "no-lan"
         val (host, port) = syncHostPort()
         return try {
             val pc = platform.syncPair(host, port, syncMe, code)
@@ -688,6 +689,7 @@ class Repo(val platform: Platform) {
     fun syncNow() {
         val pc = syncComputer.value ?: return
         if (syncStatus.value is SyncStatus.Running) return
+        if (!platform.hasLocalNetwork()) { syncStatus.value = SyncStatus.Failed("no-lan"); return }
         syncStatus.value = SyncStatus.Running(0, 0)
         scope.launch {
             val (host, port) = syncHostPort()

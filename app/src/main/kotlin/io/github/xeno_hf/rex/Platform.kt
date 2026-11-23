@@ -184,6 +184,9 @@ class AndroidKv(ctx: Context) : KeyValueStore {
 }
 
 /** Android 平台：Context、前景服務、綁 WiFi／車上熱點、Keystore、分享。 */
+/** Android 17 的區網權限（屬於「附近的裝置」權限群組）。targetSdk 37 以上沒給就連不到區網。 */
+const val LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"
+
 class AndroidPlatform(private val app: Context) : Platform {
     override val kv = AndroidKv(app)
     override val secrets = AndroidSecretStore(app)
@@ -197,6 +200,8 @@ class AndroidPlatform(private val app: Context) : Platform {
     override val supportsNetworkBinding = true
     override val supportsRunAfterClose = true
     override val supportsUplink = true
+    override fun hasLocalNetwork(): Boolean = android.os.Build.VERSION.SDK_INT < 37 ||
+        androidx.core.content.ContextCompat.checkSelfPermission(app, LOCAL_NETWORK_PERMISSION) == PackageManager.PERMISSION_GRANTED
     override val canDecryptControlFile get() = ControlFileImporter.canDecrypt
     override fun xtuneInstalled() = ControlFileImporter.xtuneInstalled(app)
     override suspend fun controlFileFromXTune() = ControlFileImporter.fromInstalledXTune(app)

@@ -43,6 +43,8 @@ interface Platform {
     val compactTabBar: Boolean get() = false
     /** 鎖螢幕後要靠定位權限才不會被系統暫停（iOS）：連線前就算沒開 GPS 也要先問。 */
     val backgroundNeedsLocation: Boolean get() = false
+    /** 能不能連區網（ECU、電腦同步）。Android 17 起要使用者給「附近的裝置」權限；iOS 由系統在第一次連線時自己問，這裡一律當作可以。 */
+    fun hasLocalNetwork(): Boolean = true
     /** 有沒有「同步到電腦」。 */
     val supportsUplink: Boolean get() = false
     fun xtuneInstalled(): Boolean = false

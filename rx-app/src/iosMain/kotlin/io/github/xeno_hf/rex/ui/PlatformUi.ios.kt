@@ -42,6 +42,10 @@ actual fun rememberFilePicker(onPicked: (name: String?, bytes: ByteArray) -> Uni
     }
 }
 
+// iOS 的區網權限由系統在第一次連線時自己問（Info.plist 的 NSLocalNetworkUsageDescription），App 這邊不用做什麼。
+@Composable
+actual fun rememberLocalNetworkAccess(): LocalNetworkAccess = remember { LocalNetworkAccess(granted = true) {} }
+
 @Composable
 actual fun rememberLocationPermission(onResult: () -> Unit): () -> Unit {
     val gps = LocalRepo.current.platform.gps as? IosGps

@@ -16,11 +16,16 @@ import io.github.xeno_hf.rex.ui.ReXApp
 import io.github.xeno_hf.rex.ui.Strings
 
 class MainActivity : ComponentActivity() {
-    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val askStartup = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= 33) askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+        val ask = buildList {
+            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+            // Android 17 起沒有區網權限就連不到 ECU 和電腦；一進 App 就問，拒絕的話連線畫面會再提示
+            if (Build.VERSION.SDK_INT >= 37) add(LOCAL_NETWORK_PERMISSION)
+        }
+        if (ask.isNotEmpty()) askStartup.launch(ask.toTypedArray())
         if (savedInstanceState == null) handleShare(intent)
         // 語言跟隨系統（含 Android 13+ 的「App 語言」）；換語言時 Activity 會重建
         val locales = resources.configuration.locales

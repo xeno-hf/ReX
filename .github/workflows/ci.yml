@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 permissions:
@@ -17,14 +16,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 21
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: Unit tests
         run: ./gradlew jvmTest
@@ -36,8 +35,50 @@ jobs:
 
       - name: Test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-reports
+          path: "*/build/reports/tests/"
+          retention-days: 7
+
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      # Kotlin 2.4.21 is tested against Xcode 26.4; the runner default is newer.
+      - name: Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.4.app
+          xcodebuild -version
+
+      # Links the device framework, including the CryptoKit-backed crypto module.
+      - name: iOS device link
+        run: ./gradlew -Prx.iosOnly=true :rx-app:linkReleaseFrameworkIosArm64
+
+      # Shared core and crypto tests (standard test vectors) on the iOS simulator.
+      - name: iOS simulator tests
+        run: |
+          ./gradlew -Prx.iosOnly=true :xb-tune:iosSimulatorArm64Test :xb-crypto:iosSimulatorArm64Test
+          # Each module must actually run at least one test (all skipped or no report fails the job).
+          for m in xb-tune xb-crypto; do
+            n=$(grep -ho '<testsuite [^>]*>' $m/build/test-results/iosSimulatorArm64Test/*.xml | awk '{t=$0; sub(/.* tests="/,"",t); sub(/".*/,"",t); k=0; s=$0; if (s ~ / skipped="/) { sub(/.* skipped="/,"",s); sub(/".*/,"",s); k=s }; n+=t-k} END {print n+0}')
+            echo "$m: $n tests ran"
+            [ "$n" -gt 0 ]
+          done
+
+      - name: iOS test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-test-reports
           path: "*/build/reports/tests/"
           retention-days: 7

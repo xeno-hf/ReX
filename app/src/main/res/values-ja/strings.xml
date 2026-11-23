@@ -47,6 +47,8 @@
     <string name="conn_find">自動検索</string>
     <string name="conn_not_found">バイクが見つかりません。端末とバイクが同じ WiFi に接続されているか確認してください。</string>
     <string name="conn_xtune_kicked">接続中は XTune の接続が切れます。</string>
+    <string name="lan_needed">Wi-Fi で ECU やパソコンに接続するには「付近のデバイス」の権限が必要です。</string>
+    <string name="lan_allow">許可</string>
     <string name="conn_password">ECU パスワード（空欄＝工場出荷時 888888）</string>
     <string name="conn_channels">表示するチャンネル</string>
     <string name="conn_new_group">＋ チャンネルグループを追加</string>

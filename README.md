@@ -61,7 +61,7 @@ ReX 內建各型號常用的監控通道，連線時會依 ECU 自動切換，�
 
 ## 建置
 
-需要 JDK 17+ 與 Android SDK（Platform 35）。
+需要 JDK 17+ 與 Android SDK（Platform 37.2）。
 
 ```sh
 ./gradlew :app:assembleRelease

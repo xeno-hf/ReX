@@ -18,4 +18,4 @@ dependencyResolutionManagement {
 include(":rx-protocol", ":rx-defs", ":rx-session", ":rx-app")
 if (!providers.gradleProperty("rx.iosOnly").isPresent) include(":app")
 
-include(":xb-tune", ":xb-link")
+include(":xb-tune", ":xb-link", ":xb-crypto")

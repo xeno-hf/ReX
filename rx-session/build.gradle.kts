@@ -5,12 +5,13 @@ kotlin {
         commonMain.dependencies {
             api(project(":rx-protocol"))
             api(project(":rx-defs"))
-            api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-            api("org.jetbrains.kotlinx:kotlinx-io-core:0.7.0")
-            api("org.jetbrains.kotlinx:kotlinx-datetime:0.6.2")
-            api("org.jetbrains.kotlinx:atomicfu:0.27.0")
+            api(project(":xb-crypto"))
+            api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+            api("org.jetbrains.kotlinx:kotlinx-io-core:0.9.3")
+            api("org.jetbrains.kotlinx:kotlinx-datetime:0.8.0")
+            api("org.jetbrains.kotlinx:atomicfu:0.33.0")
         }
-        jvmTest.dependencies { implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2") }
+        jvmTest.dependencies { implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0") }
     }
 }
 

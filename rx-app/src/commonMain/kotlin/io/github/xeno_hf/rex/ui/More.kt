@@ -270,6 +270,9 @@ private fun SyncSettings() {
     val repo = LocalRepo.current
     val scope = rememberCoroutineScope()
     SectionTitle(stringResource(R.string.set_sync))
+    // 沒有區網權限時，配對和同步改成要權限，不去開 socket
+    val lan = rememberLocalNetworkAccess()
+    LocalNetworkNotice(lan)
     var addr by remember { mutableStateOf(repo.uplinkAddr) }
     OutlinedTextField(
         addr, { addr = it; repo.uplinkAddr = it }, label = { Text(stringResource(R.string.set_sync_addr)) },
@@ -287,6 +290,7 @@ private fun SyncSettings() {
             // 電腦顯示 XXXX-XXXX-XXXX-XXXX：連字號、空白可打可不打，也可以整段貼上
             OutlinedTextField(code, { code = it.uppercase().take(rx.session.SyncCode.LENGTH + 8) }, label = { Text(stringResource(R.string.sync_code)) }, singleLine = true, modifier = Modifier.weight(1f))
             OutlinedButton(enabled = !pairing && rx.session.SyncCode.complete(code), onClick = {
+                if (!lan.granted) { lan.request(); return@OutlinedButton }
                 scope.launch { pairing = true; pairErr = repo.pairWithComputer(rx.session.SyncCode.normalize(code)); pairing = false; if (pairErr == null) code = "" }
             }) { Text(stringResource(if (pairing) R.string.sync_pairing else R.string.sync_pair)) }
         }
@@ -303,7 +307,7 @@ private fun SyncSettings() {
         val st by repo.syncStatus.collectAsState()
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(enabled = st !is Repo.SyncStatus.Running, onClick = { repo.syncNow() }) { Text(stringResource(R.string.sync_now)) }
+            OutlinedButton(enabled = st !is Repo.SyncStatus.Running, onClick = { if (lan.granted) repo.syncNow() else lan.request() }) { Text(stringResource(R.string.sync_now)) }
             Text(
                 when (val x = st) {
                     is Repo.SyncStatus.Running -> stringResource(R.string.sync_running, x.done, x.total)
@@ -326,5 +330,6 @@ private fun syncReason(reason: String): String = when (reason) {
     "bad-code" -> stringResource(R.string.sync_err_bad_code)
     "unknown-device", "auth" -> stringResource(R.string.sync_err_forgotten)
     "different-computer" -> stringResource(R.string.sync_err_other_pc)
+    "no-lan" -> stringResource(R.string.lan_needed)
     else -> stringResource(R.string.sync_err_other, reason)
 }

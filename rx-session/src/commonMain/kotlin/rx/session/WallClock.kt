@@ -1,11 +1,15 @@
 package rx.session
 
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.number
 import kotlinx.datetime.offsetAt
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.io.buffered
 import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
+import kotlin.time.Clock
+import kotlin.time.Instant
+import xb.crypto.XbCrypto
 
 /** 牆鐘時間（epoch ms）與本地時間格式化（取代 SimpleDateFormat）。 */
 object WallClock {
@@ -26,13 +30,23 @@ object WallClock {
         fun p2(n: Int) = n.toString().padStart(2, '0')
         return pattern
             .replace("yyyy", t.year.toString().padStart(4, '0'))
-            .replace("MM", p2(t.monthNumber))
-            .replace("dd", p2(t.dayOfMonth))
+            .replace("MM", p2(t.month.number))
+            .replace("dd", p2(t.day))
             .replace("HH", p2(t.hour))
             .replace("mm", p2(t.minute))
             .replace("ss", p2(t.second))
     }
 }
 
-/** 檔案 SHA-256（小寫十六進位）。 */
-expect fun sha256Hex(path: Path): String
+/** 檔案 SHA-256（小寫十六進位）。讀檔共用，雜湊走平台實作（JDK／CommonCrypto），比純 Kotlin 的 [Sha256] 快好幾倍。 */
+fun sha256Hex(path: Path): String = XbCrypto.sha256Stream().use { sha ->
+    val buf = ByteArray(1 shl 16)
+    SystemFileSystem.source(path).buffered().use { src ->
+        while (true) {
+            val n = src.readAtMostTo(buf, 0, buf.size)
+            if (n <= 0) break
+            sha.update(buf, 0, n)
+        }
+    }
+    sha.digest().joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+}

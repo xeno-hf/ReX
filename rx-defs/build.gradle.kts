@@ -3,6 +3,7 @@
 kotlin {
     sourceSets {
         commonMain.dependencies { implementation(project(":rx-protocol")) }
-        jvmTest.dependencies { implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1") }
+        jvmMain.dependencies { implementation(project(":xb-crypto")) }
+        jvmTest.dependencies { implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0") }
     }
 }

@@ -7,12 +7,21 @@ import kotlinx.coroutines.Dispatchers
 import rx.session.readImport
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -35,6 +44,28 @@ actual fun rememberFilePicker(onPicked: (name: String?, bytes: ByteArray) -> Uni
     }
     return { l.launch(arrayOf("*/*")) }
 }
+
+@Composable
+actual fun rememberLocalNetworkAccess(): LocalNetworkAccess {
+    val platform = LocalRepo.current.platform
+    // 對話框裡的 LocalContext 是包過主題的 Context，轉不回 Activity；要用 LocalActivity
+    val activity = LocalActivity.current
+    var granted by remember { mutableStateOf(platform.hasLocalNetwork()) }
+    // 從設定頁打開權限再回來：回到前景就重新檢查
+    LifecycleResumeEffect(platform) {
+        granted = platform.hasLocalNetwork()
+        onPauseOrDispose { }
+    }
+    val l = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        granted = platform.hasLocalNetwork()
+        // 系統已經不再跳詢問（拒絕過兩次）：帶去 App 的設定頁讓使用者自己打開
+        if (!ok && activity != null && !activity.shouldShowRequestPermissionRationale(LOCAL_NETWORK))
+            activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", activity.packageName, null)))
+    }
+    return LocalNetworkAccess(granted) { if (Build.VERSION.SDK_INT >= 37) l.launch(LOCAL_NETWORK) else granted = platform.hasLocalNetwork() }
+}
+
+private const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
 
 @Composable
 actual fun rememberLocationPermission(onResult: () -> Unit): () -> Unit {

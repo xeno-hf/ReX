@@ -11,6 +11,7 @@ plugins {
 kotlin {
     jvm { compilerOptions.jvmTarget.set(JvmTarget.JVM_17) }
     iosArm64()
+    iosSimulatorArm64()
     applyDefaultHierarchyTemplate()
 
     sourceSets {
@@ -18,11 +19,11 @@ kotlin {
             api(project(":rx-protocol"))
             api(project(":rx-defs"))
             api(project(":xb-tune"))
-            api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+            api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
-            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
         }
         jvmTest.dependencies {
             implementation(kotlin("test"))

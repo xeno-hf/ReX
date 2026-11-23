@@ -29,8 +29,10 @@ jobs:
           java-version: 21
           cache: gradle
 
+      # Kotlin 2.4.21 is tested against Xcode 26.4; the runner default is newer.
       - name: Toolchain
         run: |
+          sudo xcode-select -s /Applications/Xcode_26.4.app
           sw_vers
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version

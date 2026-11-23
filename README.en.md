@@ -61,7 +61,7 @@ Requires Android 10+ / iOS 15+ (iPhone/iPad). Pairing with XenoBrex, and therefo
 
 ## Build
 
-Requires JDK 17+ and the Android SDK (Platform 35).
+Requires JDK 17+ and the Android SDK (Platform 37.2).
 
 ```sh
 ./gradlew :app:assembleRelease

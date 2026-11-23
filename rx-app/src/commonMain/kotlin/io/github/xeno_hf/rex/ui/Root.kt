@@ -452,6 +452,16 @@ fun ImportScreen() {
     }
 }
 
+/** 沒有區網權限時的說明和「允許」按鈕（連線、同步畫面用）；有權限就不顯示。 */
+@Composable
+fun LocalNetworkNotice(lan: LocalNetworkAccess) {
+    if (lan.granted) return
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(R.string.lan_needed), color = RxColors.warn, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        TextButton(onClick = lan.request) { Text(stringResource(R.string.lan_allow)) }
+    }
+}
+
 @Composable
 private fun ConnectDialog(onDismiss: () -> Unit) {
     val repo = LocalRepo.current
@@ -480,6 +490,8 @@ private fun ConnectDialog(onDismiss: () -> Unit) {
         demoTarget?.let(repo::connect); demoTarget = null; demoPick = false; onDismiss()
     }
     fun needLocation() = (repo.gpsEnabled.value || repo.platform.backgroundNeedsLocation) && !repo.gps.hasPermission()
+    // 沒有區網權限時，找車和連線改成要權限，不去開 socket
+    val lan = rememberLocalNetworkAccess()
 
 
     AlertDialog(
@@ -488,10 +500,12 @@ private fun ConnectDialog(onDismiss: () -> Unit) {
         title = { Text(stringResource(R.string.connect)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                LocalNetworkNotice(lan)
                 OutlinedTextField(host, { host = it }, label = { Text(stringResource(R.string.conn_host)) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth())
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(enabled = !scanning, onClick = {
+                        if (!lan.granted) { lan.request(); return@TextButton }
                         scanning = true; found = null
                         scope.launch {
                             val finder = repo.platform.ecuFinder()
@@ -552,7 +566,9 @@ private fun ConnectDialog(onDismiss: () -> Unit) {
         confirmButton = {
             Button(onClick = {
                 save()
-                if (needLocation()) {
+                if (!lan.granted) {
+                    lan.request()
+                } else if (needLocation()) {
                     askGps()
                 } else { repo.connect(Target.Ecu(host.trim())); onDismiss() }
             }, enabled = host.isNotBlank()) { Text(stringResource(R.string.connect)) }
